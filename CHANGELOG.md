@@ -1,5 +1,18 @@
 # 变更日志
 
+## [2026-11-18] feat(termux): 本机 DSH 环境（Termux 里跑真 DSH，登录由 DSH 完成）
+
+- **Termux 配置页**新增两个入口：「准备 DSH 环境（Termux 装 Node + DSH）」
+  （`pkg install nodejs-lts` + `npm i -g @deepseek-ai/dsh`，超时 30 分钟）
+  与「启动本机 DSH」（后台 `dsh web --host 127.0.0.1 --port 8788`）。
+- **远程连接页**新增「本机 DSH（Termux）」卡片：状态探测（`GET 插件/status`，2s）、
+  启动、打开登录页、刷新；插件地址默认 `http://127.0.0.1:8218`。
+- **模型配置**新增「用本机 DSH 账号（localhost 代理）」：填 `http://127.0.0.1:8218/v2/llm`，
+  本地请求插件按 `isLocal` 放行，不需要配对令牌。
+- 合规：登录由 Termux 里真正的 DSH 完成（官方 `deepseekAccount` 解析 token），
+  App 只是 localhost 客户端——与 dsh-go "本机引擎"同构，不冒充客户端。
+- 说明：Termux 首次需手动打开一次完成初始化，否则 RUN_COMMAND 通道不可用（页面已有提示）。
+
 ## [2026-11-18] chore(llm): 下线手机原生 DeepSeek 账号登录（B 方案）入口
 
 - 用户口径：B 是"模拟 DSH web 客户端"拿账号 token，属平台协议灰色地带，下线入口。

@@ -288,6 +288,18 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // Termux 环境页自检：--es mode termux_page
+        if ("termux_page".equals(getIntent().getStringExtra("mode"))) {
+            try {
+                startActivity(new android.content.Intent(this,
+                        com.oilquiz.app.ai.tool.TermuxEnvSetupActivity.class));
+            } catch (Throwable t) {
+                Log.e(TAG, "termux_page 失败: " + t.getMessage(), t);
+            }
+            finish();
+            return;
+        }
+
         // 手机事件回传自检：--es mode emit_event
         if ("emit_event".equals(getIntent().getStringExtra("mode"))) {
             try {

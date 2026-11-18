@@ -121,6 +121,9 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         firstInitHintView = findViewById(R.id.tv_first_init_hint);
         findViewById(R.id.btn_enable_ssh).setOnClickListener(v -> doEnableSsh());
         findViewById(R.id.btn_install_cli).setOnClickListener(v -> doInstallCliTools());
+        // 2026-11-18：本机 DSH（Termux 里真 DSH；登录由 DSH 完成，App 只是 localhost 客户端）
+        findViewById(R.id.btn_setup_dsh).setOnClickListener(v -> doSetupDsh());
+        findViewById(R.id.btn_start_dsh).setOnClickListener(v -> doStartDsh());
         findViewById(R.id.btn_ssh_autostart).setOnClickListener(v -> {
             if (TermuxEnvInstaller.termuxVersion(this) == null) {
                 log("🔍 还没装 Termux，先点上方「安装 Termux」。");
@@ -1165,6 +1168,90 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
      * 补装 CLI 工具（当前就一个 tmux）：导出内置 deb → 落盘脚本 → **走命令通道等回执**（不是 fire-and-forget，
      * "我下发了"不算，装没装上以回执为准）。一键准备的 step2b 用的是同一份脚本体。
      */
+    private static final int DSH_SETUP_TIMEOUT_SECONDS = 1800;
+    private static final int DSH_START_TIMEOUT_SECONDS = 30;
+
+    /** 2026-11-18：在 Termux 里准备 DSH（Node + @deepseek-ai/dsh），供「本机 DSH」使用。 */
+    private void doSetupDsh() {
+        if (TermuxEnvInstaller.termuxVersion(this) == null) {
+            log("🔍 还没装 Termux，先点上方「安装 Termux」，装完再回来准备 DSH。");
+            return;
+        }
+        if (!TermuxEnvInstaller.hasRunCommandPermission(this)) {
+            log("🔍 还没授予 RUN_COMMAND 权限，先点向导主按钮授权。");
+            return;
+        }
+        if (busy) {
+            toast("正在执行中，请稍候");
+            return;
+        }
+        java.io.File f = TermuxEnvInstaller.writeTextFile(this, "setup_dsh.sh",
+                TermuxEnvInstaller.buildDshSetupScript());
+        if (f == null) {
+            log("❌ 准备脚本落盘失败（公共目录写不进去？）。");
+            return;
+        }
+        busy = true;
+        refresh();
+        log("🧠 正在 Termux 里准备 DSH 环境（装 Node + @deepseek-ai/dsh，需联网，几分钟到十几分钟）…");
+        final String oneLine = "bash \"" + f.getAbsolutePath() + "\"";
+        new Thread(() -> {
+            TermuxEnvInstaller.ChannelResult r =
+                    TermuxEnvInstaller.runInTermuxAndWait(this, oneLine, DSH_SETUP_TIMEOUT_SECONDS);
+            runOnUiThread(() -> {
+                busy = false;
+                refresh();
+                if (r.ok) {
+                    log("✅ DSH 环境已就绪。\n" + r.stdout
+                            + "\n接着点「启动本机 DSH」，再打开 http://127.0.0.1:8788 登录 DeepSeek 账号。");
+                } else if (r.timedOut) {
+                    log("⏳ 超过 " + DSH_SETUP_TIMEOUT_SECONDS + " 秒没回执：" + r.error
+                            + "\n安装可能还在 Termux 里跑，跑完再点一次这个按钮会显示已就绪。");
+                } else {
+                    log("⚠️ DSH 环境准备失败：" + (r.error == null ? r.stderr : r.error));
+                }
+            });
+        }, "dsh-setup").start();
+    }
+
+    /** 2026-11-18：后台启动本机 DSH Web（默认 127.0.0.1:8788）。 */
+    private void doStartDsh() {
+        if (TermuxEnvInstaller.termuxVersion(this) == null) {
+            log("🔍 还没装 Termux，先安装 Termux。");
+            return;
+        }
+        if (!TermuxEnvInstaller.hasRunCommandPermission(this)) {
+            log("🔍 还没授予 RUN_COMMAND 权限。");
+            return;
+        }
+        if (busy) {
+            toast("正在执行中，请稍候");
+            return;
+        }
+        int port = com.oilquiz.app.ai.tool.LocalDshManager.webPort(this);
+        java.io.File f = TermuxEnvInstaller.writeTextFile(this, "start_dsh.sh",
+                TermuxEnvInstaller.buildDshStartScript(port));
+        if (f == null) {
+            log("❌ 启动脚本落盘失败。");
+            return;
+        }
+        busy = true;
+        refresh();
+        log("🚀 正在 Termux 后台启动 dsh web（端口 " + port + "）…");
+        final String oneLine = "bash \"" + f.getAbsolutePath() + "\"";
+        new Thread(() -> {
+            TermuxEnvInstaller.ChannelResult r =
+                    TermuxEnvInstaller.runInTermuxAndWait(this, oneLine, DSH_START_TIMEOUT_SECONDS);
+            runOnUiThread(() -> {
+                busy = false;
+                refresh();
+                log(r.ok
+                        ? ("✅ " + r.stdout.trim() + "\n打开 http://127.0.0.1:" + port + " 登录 DeepSeek 账号。")
+                        : ("⚠️ 启动失败：" + (r.error == null ? r.stderr : r.error)));
+            });
+        }, "dsh-start").start();
+    }
+
     private void doInstallCliTools() {
         if (TermuxEnvInstaller.termuxVersion(this) == null) {
             log("🔍 还没装 Termux，先点上方「安装 Termux」，装完再回来补装 CLI 工具。");

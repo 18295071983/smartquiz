@@ -571,6 +571,38 @@ public final class TermuxEnvInstaller {
                 + "echo \"cli=ok $(date '+%F %T')\" >> \"$STATUS\"\n";
     }
 
+    /**
+     * 2026-11-18：准备本机 DSH（Termux 里装 Node + @deepseek-ai/dsh）。
+     *
+     * <p>为什么要 Termux：Android 只允许 targetSdk&lt;29 的 app 执行私有目录二进制，
+     * Termux 正是这种"用户自己的 Linux 环境"；DSH 跑在里面才是真正的 DSH 客户端，
+     * 登录/解析 token 都由 DSH 自己完成（App 只是 localhost 客户端）。</p>
+     */
+    public static String buildDshSetupScript() {
+        return "set -o pipefail\n"
+                + "echo \"[dsh] 准备 DSH 环境 $(date '+%F %T')\"\n"
+                + "export PATH=\"$PREFIX/bin:$PATH\"\n"
+                + "command -v node >/dev/null 2>&1 || { echo \"[dsh] 安装 nodejs-lts\"; pkg install -y nodejs-lts || pkg install -y nodejs || true; }\n"
+                + "if ! command -v node >/dev/null 2>&1; then echo \"DSH_SETUP_FAIL: node 没装上\"; exit 1; fi\n"
+                + "echo \"[dsh] node $(node -v 2>/dev/null)\"\n"
+                + "if ! command -v dsh >/dev/null 2>&1; then\n"
+                + "  echo \"[dsh] npm install -g @deepseek-ai/dsh\"\n"
+                + "  npm install -g @deepseek-ai/dsh || { echo \"DSH_SETUP_FAIL: npm 安装失败\"; exit 1; }\n"
+                + "fi\n"
+                + "dsh --version 2>/dev/null || true\n"
+                + "echo \"DSH_SETUP_OK $(date '+%F %T')\"\n";
+    }
+
+    /** 2026-11-18：在 Termux 后台启动本机 DSH Web（默认 127.0.0.1:8788）。 */
+    public static String buildDshStartScript(int port) {
+        return "export PATH=\"$PREFIX/bin:$PATH\"\n"
+                + "pkill -f 'dsh web' 2>/dev/null\n"
+                + "nohup dsh web --host 127.0.0.1 --port " + port
+                + " >$HOME/.dsh-web.log 2>&1 &\n"
+                + "sleep 2\n"
+                + "echo \"DSH_STARTED port=" + port + "\"\n";
+    }
+
     public static String buildSshEnableScript() {
         return "INFO=\"$HOME/storage/downloads/OilQuiz/termux_env/ssh_info.txt\"\n"
                 + "rm -f \"$INFO\"\n"

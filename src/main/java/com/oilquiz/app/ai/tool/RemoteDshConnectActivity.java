@@ -166,6 +166,36 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 toast(checked ? "电脑可以让手机 Agent 跑一句话了" : "电脑不能再驱动手机 Agent");
             });
         }
+        // 2026-11-18：本机 DSH（Termux 里真 DSH + 插件；登录由真 DSH 完成）
+        final android.widget.TextView localDshStatus = findViewById(R.id.local_dsh_status);
+        android.view.View btnLocalStart = findViewById(R.id.btn_local_dsh_start);
+        android.view.View btnLocalLogin = findViewById(R.id.btn_local_dsh_login);
+        android.view.View btnLocalRefresh = findViewById(R.id.btn_local_dsh_refresh);
+        if (btnLocalLogin != null) {
+            btnLocalLogin.setOnClickListener(v -> {
+                try {
+                    com.oilquiz.app.ai.tool.LocalDshManager.openLogin(this);
+                } catch (Throwable ignored) {
+                }
+            });
+        }
+        if (btnLocalStart != null) {
+            btnLocalStart.setOnClickListener(v -> {
+                toast("正在 Termux 里启动 dsh…");
+                new Thread(() -> {
+                    String msg = com.oilquiz.app.ai.tool.LocalDshManager.start(this);
+                    runOnUiThread(() -> {
+                        toast(msg);
+                        refreshLocalDsh(localDshStatus);
+                    });
+                }, "local-dsh-start").start();
+            });
+        }
+        if (btnLocalRefresh != null) {
+            btnLocalRefresh.setOnClickListener(v -> refreshLocalDsh(localDshStatus));
+        }
+        refreshLocalDsh(localDshStatus);
+
         // 插件总开关（2026-11-18）：手机端默认关闭；关闭时禁用本页所有操作按钮并断开连接
         com.google.android.material.switchmaterial.SwitchMaterial pluginSwitch =
                 findViewById(R.id.switch_remote_plugin);
@@ -1657,6 +1687,22 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         boolean effective = enabled && RemoteDshTool.isPluginEnabled(this);
         b.setEnabled(effective);
         b.setAlpha(effective ? 1f : 0.5f);
+    }
+
+    /** 本机 DSH 状态刷新（后台探测插件 /status，2s 超时）。 */
+    private void refreshLocalDsh(android.widget.TextView status) {
+        if (status == null) return;
+        status.setText("检测中…");
+        final String url = com.oilquiz.app.ai.tool.LocalDshManager.pluginUrl(this);
+        new Thread(() -> {
+            boolean ok = com.oilquiz.app.ai.tool.LocalDshManager.probe(this);
+            runOnUiThread(() -> {
+                if (isFinishing()) return;
+                status.setText(ok
+                        ? "运行中 · " + url + "（登录由本机 DSH 完成；模型配置选「用本机 DSH 账号」）"
+                        : "未运行 · 点「启动」等 5~10 秒再刷新（插件地址 " + url + "）");
+            });
+        }, "local-dsh-probe").start();
     }
 
     /**

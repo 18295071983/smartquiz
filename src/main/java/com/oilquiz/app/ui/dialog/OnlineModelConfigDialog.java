@@ -403,6 +403,11 @@ public class OnlineModelConfigDialog {
 
         testConnectionButton = dialog.findViewById(R.id.btn_test_connection);
         fetchModelsButton = dialog.findViewById(R.id.btn_fetch_models);
+        // 2026-11-18：用本机 DSH（Termux 真 DSH 的插件代理，localhost；无需配对令牌）
+        MaterialButton useLocalDshButton = dialog.findViewById(R.id.btn_use_local_dsh);
+        if (useLocalDshButton != null) {
+            useLocalDshButton.setOnClickListener(v -> fillLocalDshProxy());
+        }
         // 2026-11-18：一键改用电脑端 DeepSeek 账号（经已配对插件代理；手机只拿到设备令牌，不存账号 token）
         MaterialButton usePcAccountButton = dialog.findViewById(R.id.btn_use_pc_account);
         if (usePcAccountButton != null) {
@@ -1012,6 +1017,21 @@ public class OnlineModelConfigDialog {
             selectedModelInput.setText("deepseek-chat");
         }
         Toast.makeText(context, "已填入电脑端账号代理；保存后生效（电脑需已登录 DeepSeek 账号）",
+                Toast.LENGTH_LONG).show();
+    }
+
+    /** 用本机 DSH（Termux 真 DSH + 插件）：localhost 请求插件按 isLocal 放行，不需要令牌。 */
+    private void fillLocalDshProxy() {
+        String base = com.oilquiz.app.ai.tool.LocalDshManager.pluginUrl(context);
+        urlInput.setText(base + "/v2/llm");
+        keyInput.setText("local");
+        if (nameInput.getText().toString().trim().isEmpty()) {
+            nameInput.setText("本机 DSH");
+        }
+        if (selectedModelInput.getText().toString().trim().isEmpty()) {
+            selectedModelInput.setText("deepseek-chat");
+        }
+        Toast.makeText(context, "已填入本机 DSH 代理；先在「远程连接」页启动本机 DSH 并登录账号",
                 Toast.LENGTH_LONG).show();
     }
 

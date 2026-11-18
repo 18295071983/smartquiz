@@ -388,6 +388,38 @@
                         android:textColor="?attr/colorOnSecondaryContainer"
                         app:backgroundTint="?attr/colorSecondaryContainer"
                         app:cornerRadius="@dimen/radius_22"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_setup_dsh"
+                        app:icon="@drawable/ic_settings"
+                        app:iconTint="?attr/colorOnSecondaryContainer"
+                        app:iconGravity="textStart"
+                        app:iconSize="18dp"
+                        app:iconPadding="6dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/size_40"
+                        android:layout_marginTop="@dimen/space_6"
+                        android:text="准备 DSH 环境（Termux 装 Node + DSH）"
+                        android:textSize="@dimen/text_12"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        app:backgroundTint="?attr/colorSecondaryContainer"
+                        app:cornerRadius="@dimen/radius_22"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_start_dsh"
+                        app:icon="@drawable/ic_settings"
+                        app:iconTint="?attr/colorOnSecondaryContainer"
+                        app:iconGravity="textStart"
+                        app:iconSize="18dp"
+                        app:iconPadding="6dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/size_40"
+                        android:layout_marginTop="@dimen/space_6"
+                        android:text="启动本机 DSH（127.0.0.1:8788；登录在网页里）"
+                        android:textSize="@dimen/text_12"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        app:backgroundTint="?attr/colorSecondaryContainer"
+                        app:cornerRadius="@dimen/radius_22"/>
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

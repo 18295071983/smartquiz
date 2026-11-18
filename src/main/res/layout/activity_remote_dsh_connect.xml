@@ -113,6 +113,88 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- 2026-11-18：本机 DSH（Termux 里真 DSH + 插件；登录由真 DSH 完成，App 只是 localhost 客户端） -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="@dimen/elev_4"
+            app:cardCornerRadius="@dimen/radius_16"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="本机 DSH（Termux）"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlText"/>
+
+                <TextView
+                    android:id="@+id/local_dsh_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_4"
+                    android:text="检测中…"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextHint"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="@dimen/space_8">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_local_dsh_start"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_40"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="@dimen/space_8"
+                        android:text="启动"
+                        android:textSize="@dimen/text_12"
+                        android:textAllCaps="false"
+                        app:cornerRadius="@dimen/radius_8"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_local_dsh_login"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_40"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="@dimen/space_8"
+                        android:text="打开登录页"
+                        android:textSize="@dimen/text_12"
+                        android:textAllCaps="false"
+                        app:cornerRadius="@dimen/radius_8"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_local_dsh_refresh"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_40"
+                        android:layout_weight="1"
+                        android:text="刷新"
+                        android:textSize="@dimen/text_12"
+                        android:textAllCaps="false"
+                        app:cornerRadius="@dimen/radius_8"/>
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/local_dsh_hint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_6"
+                    android:text="插件地址 http://127.0.0.1:8218 · 模型配置里用「用本机 DSH 账号」"
+                    android:textSize="@dimen/text_11"
+                    android:textColor="?attr/colorControlTextHint"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- 连接配置列表（2026-11-14）：固定容器，代码只往里填 chips。
              不再用"动态插到某个父容器"的做法——那条路依赖布局结构，真机上失配过三次。 -->
         <!-- 连接管理入口（2026-11-14）：静态按钮，点开独立页面看/切换所有已存连接。
