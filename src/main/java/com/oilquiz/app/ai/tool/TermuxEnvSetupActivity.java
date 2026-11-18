@@ -989,7 +989,9 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
 
     /** 存储权限：复制 termux-setup-storage 命令 + 打开 Termux，用户点完系统弹窗后回来复检 */
     private void copyStorageCmdAndOpen() {
-        String cmd = "termux-setup-storage; sleep 2; test -d $HOME/storage && echo STORAGE_OK || echo STORAGE_NO";
+        // 2026-11-18：先删 ~/storage 残留再授权，否则会卡在 (y/n) 并被 abort
+        String cmd = TermuxEnvInstaller.TERMUX_STORAGE_FIX_COMMAND
+                + "; sleep 2; test -d $HOME/storage/downloads && echo STORAGE_OK || echo STORAGE_NO";
         ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (cm != null) {
             cm.setPrimaryClip(ClipData.newPlainText("termux-storage", cmd));
@@ -1084,11 +1086,13 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                     startSetupStep();
                 } else {
                     log("存储权限还没检测到：确认刚才在系统弹窗里点「允许」了吗？\n"
-                            + "（没点的话，切到 Termux 重新粘贴 termux-setup-storage 回车，弹窗点允许，再切回来）\n"
-                            + "已复制命令：termux-setup-storage，随时可去 Termux 粘贴。");
+                            + "（没点的话，切到 Termux 重新粘贴下面这条，弹窗点允许，再切回来）\n"
+                            + "已复制命令：" + TermuxEnvInstaller.TERMUX_STORAGE_FIX_COMMAND
+                            + "，随时可去 Termux 粘贴。");
                     ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                     if (cm != null) {
-                        cm.setPrimaryClip(ClipData.newPlainText("termux-storage-first", "termux-setup-storage"));
+                        cm.setPrimaryClip(ClipData.newPlainText("termux-storage-first",
+                                TermuxEnvInstaller.TERMUX_STORAGE_FIX_COMMAND));
                     }
                 }
                 break;
