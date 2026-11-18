@@ -11407,3 +11407,8 @@ Error: container 'ubuntu' already exists. Specify a different name with --name N
 
 - 天气模块 + 沉浸舞台重构 + 表盘数据绑定修复
 - 极光时钟（子项目，独立 Windows 应用/表盘体系）：表盘大迭代（3D 立方/文字钟/辉光管/矩阵/数字针/3D 翻/LED/冷光/流彩/脉冲/轨迹等 13+ 表盘新增、重设计、删除回归）、四模式显示统一（竖屏/沉浸/横屏/横屏沉浸）、沉浸模式全屏兜底与设置重构、TTS 增强（真人语音音色/语音引擎选择/单击报时/半点报时）、Windows exe 壳（Electron + 内置本地服务，离线可用）；删除 exe 生成功能（aurora_exe 工程及产物）
+## [2026-11-19] feat(dsh): ��������ʱԤ���ɲ�����ƣ�����ֱ����������������ԣ�
+
+- �״ν�ѹʱ�� rootfs ��Ԥ���� oot/plugin/.token��App ֱ�Ӷ�ȡ��������Ҫ���Զ����/��ά��/�豸���ơ�
+- ʵ�⣺���� DSH ���GET /v2/llm/account �������Ʒ��� ok=true��δ��¼�˺�ʱΪ signed_in=false����
+

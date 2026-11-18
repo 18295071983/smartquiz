@@ -112,6 +112,22 @@ public final class EmbeddedDsh {
         try (Writer w = new OutputStreamWriter(new FileOutputStream(resolv), StandardCharsets.UTF_8)) {
             w.write("nameserver 223.5.5.5\nnameserver 8.8.8.8\n");
         }
+        // 内置场景：预生成插件令牌，App 直接读用；不再走"电脑端配对/二维码/设备令牌"那套。
+        File pluginDir = new File(r, "root/plugin");
+        pluginDir.mkdirs();
+        File tokFile = new File(pluginDir, ".token");
+        if (!tokFile.isFile() || tokFile.length() == 0) {
+            byte[] raw = new byte[16];
+            new java.security.SecureRandom().nextBytes(raw);
+            StringBuilder sb = new StringBuilder(32);
+            for (byte b : raw) sb.append(String.format("%02x", b));
+            try (Writer w = new OutputStreamWriter(new FileOutputStream(tokFile),
+                    StandardCharsets.UTF_8)) {
+                w.write(sb.toString());
+            }
+            chmod(tokFile, 0600);
+        }
+
         // 首次启动需要的 phone profile（等价于 dsh plugin --profile phone add，免 pnpm）
         File prof = new File(r, "root/.dsh/profiles/phone");
         File profMods = new File(prof, "node_modules/@local");
