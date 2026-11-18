@@ -408,6 +408,29 @@ public class OnlineModelConfigDialog {
         if (usePcAccountButton != null) {
             usePcAccountButton.setOnClickListener(v -> fillPcAccountProxy());
         }
+        // 2026-11-18：手机原生登录 DeepSeek 账号（PKCE + 浏览器授权 + x-dsh-auth-token）
+        MaterialButton dsLoginButton = dialog.findViewById(R.id.btn_ds_account_login);
+        if (dsLoginButton != null) {
+            dsLoginButton.setOnClickListener(v -> {
+                if (com.oilquiz.app.ai.auth.DeepSeekAccountClient.isSignedIn(context)) {
+                    fillDeepSeekAccount();
+                    return;
+                }
+                Toast.makeText(context, "正在打开浏览器登录 DeepSeek…", Toast.LENGTH_SHORT).show();
+                com.oilquiz.app.ai.auth.DeepSeekAccountClient.startLogin(context,
+                        new com.oilquiz.app.ai.auth.DeepSeekAccountClient.Listener() {
+                            @Override
+                            public void onSuccess(String token, String user) {
+                                fillDeepSeekAccount();
+                            }
+
+                            @Override
+                            public void onError(String message) {
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show();
+                            }
+                        });
+            });
+        }
         saveButton = dialog.findViewById(R.id.btn_save);
         cancelButton = dialog.findViewById(R.id.btn_cancel);
         
@@ -1008,6 +1031,25 @@ public class OnlineModelConfigDialog {
             selectedModelInput.setText("deepseek-chat");
         }
         Toast.makeText(context, "已填入电脑端账号代理；保存后生效（电脑需已登录 DeepSeek 账号）",
+                Toast.LENGTH_LONG).show();
+    }
+
+    /** 把已登录的 DeepSeek 账号填成模型配置（apiKey 用 dsh_acct: 前缀，鉴权走 x-dsh-auth-token）。 */
+    private void fillDeepSeekAccount() {
+        String key = com.oilquiz.app.ai.auth.DeepSeekAccountClient.apiKeyOf(context);
+        if (key.isEmpty()) {
+            Toast.makeText(context, "还没登录 DeepSeek 账号", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        urlInput.setText(com.oilquiz.app.ai.auth.DeepSeekAccountClient.INFERENCE_BASE);
+        keyInput.setText(key);
+        if (nameInput.getText().toString().trim().isEmpty()) {
+            nameInput.setText("DeepSeek 账号");
+        }
+        if (selectedModelInput.getText().toString().trim().isEmpty()) {
+            selectedModelInput.setText("deepseek-chat");
+        }
+        Toast.makeText(context, "已填入 DeepSeek 账号；保存后生效（token 过期需重新登录）",
                 Toast.LENGTH_LONG).show();
     }
 

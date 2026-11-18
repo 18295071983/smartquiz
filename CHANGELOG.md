@@ -1,5 +1,20 @@
 # 变更日志
 
+## [2026-11-18] feat(llm): 手机原生登录 DeepSeek 账号（B 方案；电脑端独立鉴权，不互通）
+
+- **手机**：新增 `DeepSeekAccountClient`——复用 MCP OAuth 的 loopback 回调/PKCE（S256），
+  走 DSH 同一套协议：`auth_init` → 浏览器授权 → `auth_exchange` → token 用 Keystore 加密存 `ai_prefs`；
+  请求 `api.deepseek.com` 时用 `x-dsh-auth-token` 头（`dsh_acct:` 前缀由 `ProviderConfigManager` 识别）。
+- **UI**：在线模型配置弹窗新增「登录 DeepSeek 账号（手机原生）」，已登录则直接填入
+  `apiUrl=https://api.deepseek.com`、模型 `deepseek-chat`。
+- **平台 WAF**：`auth_init` 必须带浏览器特征头（UA/origin/referer），否则 429 Request Blocked；
+  回调路径用 DSH 同款 `/oauth/callback`，`x-client-version=0.2.2-rc.3`。
+- **实测**：手机端 exchange 200 → token 落盘（enc:）；该 token 直连 api.deepseek.com 返回 200；
+  模型配置已保存为「DeepSeek 账号」。
+- **边界（用户口径）**：电脑端**不用手机账号**，电脑端保持 DSH 自己的账号鉴权；两边 token 不互通。
+  A 方案的「用电脑账号代理」仍保留，属于手机侧的另一种选择。
+- 测试：`DeepSeekAccountAuthTest` 3 例（dsh_acct → x-dsh-auth-token / API Key 仍 Bearer / 空 token 不发头）。
+
 ## [2026-11-18] feat(llm): 手机可"用电脑端 DeepSeek 账号"（插件代理，A 方案）
 
 - **插件**：新增 OpenAI 兼容代理 `GET /v2/llm/models` + `POST /v2/llm/chat/completions`

@@ -20,6 +20,14 @@ public final class McpOAuthPending {
 
     private static final String TAG = "McpOAuthPending";
 
+    /**
+     * 2026-11-18：给非 MCP 的授权流（DeepSeek 账号登录）用。
+     * 复用同一套 loopback 回调 / state 校验，不需要 clientId / resource / 授权服务器元数据。
+     */
+    public static Waiter waiter(String state, String serverId, String codeVerifier, String redirectUri) {
+        return new Waiter(state, serverId, codeVerifier, "", redirectUri, "", null);
+    }
+
     /** 一次进行中的授权。 */
     public static final class Waiter {
         public final String state;

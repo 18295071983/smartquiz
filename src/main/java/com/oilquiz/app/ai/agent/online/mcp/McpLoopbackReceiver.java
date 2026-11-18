@@ -60,7 +60,17 @@ public final class McpLoopbackReceiver implements AutoCloseable {
     }
 
     public String redirectUri() {
-        return "http://127.0.0.1:" + port + "/callback";
+        return redirectUri("/callback");
+    }
+
+    /**
+     * 2026-11-18：允许自定义回调路径。DeepSeek 账号授权沿用了 DSH 的
+     * {@code /oauth/callback}，平台侧对路径可能做校验，别用默认的 /callback。
+     */
+    public String redirectUri(String path) {
+        String p = (path == null || path.isEmpty()) ? "/callback" : path;
+        if (!p.startsWith("/")) p = "/" + p;
+        return "http://127.0.0.1:" + port + p;
     }
 
     /** 后台线程接一条带 code/error 的请求；其余请求（favicon、探活）回 404 继续等。 */

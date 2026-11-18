@@ -569,6 +569,15 @@ public class ProviderConfigManager {
 
     public Map<String, String> getAuthHeaders(String apiUrl, String apiKey, String apiSecret, String appId) {
         Map<String, String> headers = new HashMap<>();
+        // 2026-11-18：DeepSeek 账号 token 走 DSH 的 x-dsh-auth-token 头（不是 Bearer）
+        if (apiKey != null && apiKey.startsWith(com.oilquiz.app.ai.auth.DeepSeekAccountClient.KEY_PREFIX)) {
+            String token = apiKey.substring(
+                    com.oilquiz.app.ai.auth.DeepSeekAccountClient.KEY_PREFIX.length());
+            if (!token.isEmpty()) {
+                headers.put("x-dsh-auth-token", token);
+            }
+            return headers;
+        }
         if (isUnusableKey(apiKey)) return headers;
         Provider p = matchByUrl(apiUrl);
         String auth = p != null && p.auth != null && !p.auth.isEmpty() ? p.auth : "bearer";
