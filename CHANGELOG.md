@@ -1,5 +1,499 @@
 # 变更日志
 
+## [2026-11-18] feat(canvas): 新版动态画布独立成工具 `ui_canvas`（不碰旧 `ui_component`）
+
+用户口径：「刚才做好的可以做个新工具，不要与现在的工具冲突就行」。
+
+- **新工具**：`ui_canvas`（`UICanvasTool`），与 `ui_component` 的 `layout_canvas` 完全隔离——
+  独立会话表（`cv2_` 前缀）、独立渲染器 `CanvasV2Renderer`（复制自备份分支的框架控件版，
+  未改动旧 `NativeLayoutRenderer`）、独立弹窗宿主（浮动卡 / 无壁纸底 / 高度默认 auto + 72% 封顶 /
+  IME 不抢焦点）。`layout_editor` 与旧画布会话都碰不到它。
+- **动作**：`screen_info`（屏幕与推荐尺寸）、`create`（`layout` 或 `template=form|settings|dashboard`）、
+  `get_result`（阻塞取值，返回 `values`）、`close`、`list`。
+- **工具定义**：`@Tool` + 9 个 `@Param`（action/title/layout/template/canvas_width/canvas_height/
+  canvas_max_height/component_id/wait_seconds），由注解扫描自动注册（logcat 可见
+  `Auto-registered (annotation): ui_canvas`），不改 `AgentService` 手写 schema。
+- **复用**：`CanvasControls`（Material 控件工厂）+ `CanvasTemplates`（form/settings/dashboard），
+  从备份分支取回，仅新工具引用。
+- **入口补全（与旧工具对齐）**：`create` 现在收 4 种入口——`layout` 控件树、`template=form|settings|dashboard`、
+  `component_type=<任意类型>`（内置卡片/控件/已注册动态类型直接作为画布根节点，`props` 传参）、
+  `use=<layout模板名>`（`props` 占位）；对应 12 个 `@Param` 全部写进工具定义。
+- **控件覆盖**：`CanvasV2Renderer` 与旧 `NativeLayoutRenderer` 的 `case` 类型数一致（131 : 131），
+  真机用 14 种控件的"全家桶"布局验证：input/select/switch/checkbox_group/radio_group/slider/
+  stepper/rating/date/time/tag_input/toggle/button 全部渲染；同时修掉打开时滚动位置不在顶部、
+  stepper 的 +/− 按钮被 MaterialButton 默认 88dp 最小宽撑大的问题（固定 44dp 方形）。
+- **内置文档**：`AgentWorkspace` 的《工具创建指南.md》补第 8 条、《使用速查表.md》补"四·六"，
+  说明 `ui_canvas` 的 screen_info→create→get_result 流程、四种入口、外壳特性与"与 layout_canvas
+  完全隔离（cv2_ 前缀 / layout_editor 编辑不到 / close_all_components 不影响）"。
+- 验证：`UICanvasToolTest`（5 例：注册隔离 / screen_info / 参数校验 / 未知模板 / 未知 id）；
+  真机 debug 入口 `--es mode canvas_v2 --es template settings`、`--es json_b64 <布局>`、`--es ctype chart`。
+
+## [2026-11-18] revert(canvas)：动态 UI 工具整体回退到 HEAD（保留备份分支）
+
+用户口径：「把一个月前的动态 UI 工具找回来，你现在纯纯的乱改」「工具定义/提示词也恢复」。
+
+- **回退范围**：`NativeLayoutRenderer` / `PythonToolManager` / `LayoutCanvasConstraints` /
+  `SystemUIComponentTool` / `AgentToolView` / `DebugLayoutInjectActivity` 回到 HEAD；
+  删除新增的 `CanvasControls` / `CanvasTemplates` 及其 3 个测试（`CanvasControlFrameworkTest` /
+  `CanvasTemplatesTest` / `ScreenInfoActionTest`）。
+- **工具定义与提示词**：全部回到 HEAD —— `SystemUIComponentTool` 的 `@Action/@Param`（不再有
+  `screen_info` / `template` / `canvas_*` 透传说明）、`getParameterDescriptions()`、以及
+  `AgentWorkspace` / `LayoutEditorTool` / `AIToolManager` 等提示词源文件均为 HEAD（已核对 clean）。
+- **备份**：分支 `backup/canvas-wip-20261118`（2 个提交）完整保存了回退前的 8 个文件 + 3 个测试，
+  需要时 `git checkout backup/canvas-wip-20261118 -- <路径>` 可取回。
+- **保留**：主题色系（M3 role / 层级 / 状态层 / 组件取色）、`GenOverlays` 的语义 role 补齐、
+  以及其他未提交改动均未受影响。
+- 测试：全量 `testDebugUnitTest` 通过（2531 例）；顺带把并行新增的 `CodeReaderActivity`
+  里一处 `new AlertDialog.Builder` 迁到 `AppDialog`（该文件是未跟踪的新文件，撞了
+  `DialogStandardRatchetTest` 基线 0）。
+
+## [2026-11-18] feat(canvas)：画布弹窗化 / 不用壁纸 / 屏幕尺寸 / 模板 / 动态工具插槽
+
+用户口径：「去除状态栏壳底栏不兼容层，尽量设计成弹窗样式」「画布可由 agent 指定大小、颜色」「屏幕尺寸算好传给工具」「模板化、高度可扩展」「有 UI 的动态工具有点击入口插槽」「画布不要用壁纸」。
+
+**8.2 画布弹窗化（不用 AppDialog 标题栏/按钮壳）**
+- `PythonToolManager.buildCanvasDialog`：自定义 `Dialog` + `MaterialCardView`（24dp 圆角、
+  4dp 阴影、`surfaceContainerLow` 底、`outlineVariant` 描边），头部只有标题 + 关闭（44dp 触摸），
+  不再有 AlertDialog 标题栏/底部按钮栏。
+- 尺寸：窗口宽 = min(模型宽, 屏宽-32dp)（两侧各 16dp），高作用在画布 ScrollView 上；
+  `auto` 先 WRAP 再按上限封顶（上限 = 可用高 - 32dp 或模型 `canvas_max_height`）。
+- `configureDialogInput` 增加 `android.app.Dialog` 重载，IME 逻辑（ADJUST_RESIZE / 清
+  ALT_FOCUSABLE_IM / EditText 点击弹键盘）完全复用。
+
+**壁纸关闭（用户补的要求）**
+- `addCanvasBackdrop`：画布打开期间在 Activity DecorView 上盖一层**不透明** `?attr/colorBackground`，
+  浮卡落在纯色底上、壁纸不出现；点外部关闭、dismiss 时移除（幂等）。不用 `windowBackground`
+  的原因：壁纸是 `EdgeToEdgeHelper` 设在 Activity 窗口上的，浮动 Dialog 窗口只有卡片大小，盖不住。
+
+**8.3 屏幕尺寸给 Agent**
+- `ui_component(action=screen_info)`：返回宽高 px/dp、density/dpi、系统栏 inset、可用宽高，
+  以及 `recommended_canvas_width_dp`（可用宽-32dp）、`recommended_canvas_height_dp`（65%）、
+  `recommended_canvas_max_height_dp`（可用高-32dp）；写进 `@Action` 描述（模型才看得见）。
+- **顺带修一个静默 bug**：`canvas_width/height/max_height` 之前只在 schema 里写了，
+  `extractCreateParams` 没透传 → 模型传了也会被丢（画布永远默认尺寸）。现在并入 props。
+
+**8.4 画布模板**
+- 新增 `CanvasTemplates`：`template=form|settings|dashboard` 直接生成完整 layout（表单/设置/概览），
+  并补默认尺寸（`canvas_height=auto`、`canvas_max_height=80%`）；显式 layout/尺寸优先。
+- 模板只用 `NativeLayoutRenderer` 已有节点，不引入新控件类型。
+
+**8.5 动态工具 UI 插槽**
+- `AgentToolView` 动态工具行新增操作区：
+  - 「▶ 运行」：按 `getParameterDescriptions()` 生成输入框，**后台直接执行工具**（不经模型/对话），
+    结果弹窗；
+  - 「🖼 打开 UI」：当存在同名 / `<工具名>_ui` / `<工具名>_card` 的已注册组件类型时显示，
+    走既有 `ui_component(action=create)` 链路直接开窗；
+  - 区块说明写明插槽约定：让 Agent 用 `layout_editor(action=pin, name=<工具名>_ui)` 固定画布。
+
+**测试**：`ScreenInfoActionTest`（3 例断言）、`CanvasTemplatesTest`（5 例）；全量单测见下。
+
+**8.2 真机收口（2026-11-18 晚些，手机充电后）**
+- **默认高度改为自适应**：没传 `canvas_height/canvas_max_height` 时不再固定 72% 屏高（小表单会开成半屏空白），
+  改成"随内容 WRAP + 72% 屏高封顶"（`LayoutCanvasConstraints.resolveCanvasSize`）。
+- **打开时不抢焦点弹键盘**：`onshow` 里 `SOFT_INPUT_STATE_ALWAYS_HIDDEN` + `clearFocus` + 延迟
+  `hideSoftInputFromWindow`（`AutoCompleteTextView`/`EditText` attach 后会自动聚焦）。
+- **卡片内容内边距**：`MaterialCardView.setPadding` 管不到内容区，改 `setContentPadding`
+  （真机症状：卡标题压在描边上、字段挤出卡片）。
+- **SwitchMaterial 画不全**：ScrollView + WRAP 测量下 track 固有宽度拿不到，只画出半个 thumb（灰色 "D"）；
+  显式 `setSwitchMinWidth(52dp)` + thumb/track 品牌色 tint。
+- **宿主主题缺失会崩**：Debug 注入页原用 `@android:style/Theme.Translucent.NoTitleBar`（系统主题），
+  画布渲染 `SwitchMaterial` 直接抛 "requires colorControlActivated"；新增
+  `Theme.App.Translucent`（继承 `Theme.OilQuizApp`，只把窗口改透明）并给该 Activity 换上。
+- **状态栏图标对比度**：画布底改成不透明主题色后，按"底的实际亮度"重算图标明暗
+  （`EdgeToEdgeHelper.syncStatusBarIcons(act, backdrop)`），关闭时恢复主题口径。
+- 真机截图：`docs/ui/canvas-shots/02-popup-template-light.png`（settings 模板）、
+  `03-popup-form-light.png`（表单/滑杆/分段），均确认：无 AlertDialog 壳、无壁纸、无键盘、卡片留白正常。
+
+## [2026-11-18] fix(theme)：补齐 M3 颜色角色，拆开 outline / outlineVariant
+
+用户口径：「之前的主题色值可能有点问题，有些不是 m2 的颜色使用 m3 的颜色名称显示的不是 m3 的颜色」。
+
+**根因（两条）**
+1. **M3 role 缺失**：主题只声明了 `colorSurfaceVariant / colorOutline / color*Container` 等一部分
+   M3 名字，`colorSurfaceContainer*`（五档）/ `colorOutlineVariant` / `colorInverse*` /
+   `colorSurfaceTint` 根本没定义。MDC 的 `MaterialDatePicker` / `MaterialTimePicker` / Chip /
+   Card / Snackbar 读这组 role，读不到就退回 `colorSurface` 或透明——这就是"用 M3 名字、
+   显示的不是 M3 颜色"的直接原因。
+2. **outline 被当边框色用**：`colorOutline` 之前映射到 `@color/outline` = `#E2E8F0`（分隔线色），
+   M3 里 outline 是组件描边（tone 50，中性灰），结果 Chip/输入框/日期选择器描边淡到看不见。
+
+**改动**
+- `attrs.xml` 补声明 `colorOutlineVariant` / `colorSurfaceContainer{Lowest,Low,,High,Highest}` /
+  `colorSurfaceTint` / `colorInverse{Surface,OnSurface,Primary}`（nonTransitiveRClass 下 Java 才有 R.attr 符号）。
+- `colors.xml` + `values-night/colors.xml` 新增：`outline_m3`（浅 `#79747E` / 深 `#938F99`）、
+  `outline_variant`、`surface_container_*` 五档（浅色越低越亮、深色越高越亮，符合 M3 elevation 逻辑）、
+  `inverse_*` 三色。
+- `Theme.OilQuizApp.Base`：`colorOutline → @color/outline_m3`，新增
+  `colorOutlineVariant / colorSurfaceContainer* / colorSurfaceTint(=?attr/colorPrimary) / colorInverse*`。
+- `ThemeOverlay.SmartQuiz.Oled`：补五档容器 + `outline`（纯黑上可见的 `#6E6E6E`）/`outlineVariant`。
+- 新增 `ThemeOverlay.App.M3Roles`（`styles.xml`），由 `ThemeManager.applyThemeOverlay` 在预设色 /
+  OLED 之后统一叠加：`outlineVariant←colorBorder`、`surfaceContainer*←colorSurface / colorSurfaceVariant / colorBorder`。
+  31 份生成 overlay 不手改，靠 `?attr` 运行时解析自动跟随（默认紫 / 7 预设 / 24 色相 / 纯黑都覆盖）。
+- 5 个把 `?attr/colorOutline` 当**分隔线背景**用的布局
+  （`activity_api_config` / `item_api_config` / `item_history_header` /
+  `item_local_model_selector` / `item_score_history`）改 `?attr/colorOutlineVariant`；
+  作为 `boxStrokeColor`/`strokeColor` 的 13 处保持 outline（此时语义正确）。
+
+**第二批：色系层级补全（同日，用户口径"层次不够，看看 colors.xml"）**
+- 表面 8 档：在 5 档 `surface_container_*` 之外补 `surface_dim` / `surface_bright`，以及
+  `surface_elevated_1/2/3`（此前 `surface_elevated` 与 `surface` 同值，等于没有层级）。
+- 状态层：`state_hover(8%) / state_focus(12%) / state_pressed(12%) / state_dragged(16%) /
+  state_disabled_container / state_disabled_content`，外加 `primary_state_*` 三档
+  （此前只有 `primary_alpha_10/20/50/80`，组件按下/禁用只能各写各的 alpha）。
+- 语义容器成套：补 `info_container / on_info / on_info_container / on_success_container /
+  on_warning_container`（此前 info 用主色冒充、success/warning 缺 on 色）。
+- 图表：`chart_grid / chart_axis / chart_label`（此前图表借 border/text_tertiary）。
+- 遮罩/边框：主题级 `scrim`、`border_strong`。
+- 组件别名：`component_surface_low/surface/surface_high`、`component_border_strong`、
+  `component_scrim`、`component_on_*_container`、`component_chart_*`；
+  `ComponentColors` 增 `surfaceContainer(level)/surfaceDim/surfaceBright/stateXxx/
+  successContainer/onSuccessContainer/infoContainer/chartGrid/chartAxis/chartLabel/scrim/borderStrong`。
+- 主题映射：`Theme.OilQuizApp.Base` + `ThemeOverlay.SmartQuiz.Oled` 全部接上；
+  `attrs.xml` 补声明（nonTransitiveRClass 下 Java 才有 R.attr）。
+- 夜间 `values-night/colors.xml` 同名同步（深色下容器越高越亮）。
+
+**测试**：`ThemeColorRolesTest`（Robolectric，6 例）钉住——浅/深主题下全部 M3/层级/状态/语义/
+图表 role 都能解析出非 0 颜色；outline ≠ outlineVariant；surfaceContainer 五档明暗方向；
+状态层是半透明且 hover < pressed ≤ dragged < disabled 内容透明度。
+
+**第三批：组件层接入（同日，用户口径"接"）**
+- `ComponentTheme`：
+  - 新增 `surfaceLayer(level)`：把 `onSurface` 按 4/8/12/16% 叠到 `surface` 上（浅色变暗、深色变亮），
+    不依赖预设 overlay 是否带全五档容器 —— 任何换肤/深色/动态色下层级都成立；
+    `surfaceVariant()` 改为 `surfaceLayer(2)`（与当前 surfaceVariant 视觉等价、口径统一）。
+  - `outline()` 改读 `colorOutlineVariant`（此前读 `colorOutline`；outline 回归 M3 后会把卡片框画成深灰）。
+  - `success/warning/danger` 改走 `ComponentColors.*`（attr 优先）——此前直接读固定资源，**预设换肤时不跟**。
+  - 新增 `successContainer/onSuccessContainer/warningContainer/onWarningContainer/infoContainer/
+    onInfoContainer/errorContainer/onErrorContainer`、`chartGrid/Axis/Label`、`statePressed/stateDisabledContent`。
+- `CardShell.applyRipple`：按压反馈改自绘 `RippleDrawable`（`colorStatePressed` + 卡片圆角 mask），
+  不再依赖各机型 `selectableItemBackground` 的偏色。
+- `AlertCardView`：四档（success/warning/error/info）改用**语义容器底 + on 色文字**，
+  描边取语义基色 33% alpha；此前四档都是中性底 + 左侧色条，深浅/换肤下区分度低。
+- `ChartCardView`：网格线/轴标签改用 `chartGrid / chartLabel`，不再借 `border / textSecondary`。
+
+**第四批：其余组件接语义容器（同日，用户口径"继续"）**
+- `TodoCardView` / `ProgressCardView` / `ListCardView`：卡片底/描边从 `component_bg`/`component_border`
+  改走 `ComponentTheme.surface()` / `outline()`（surface 层级 + outlineVariant）。
+- `ProgressCardView`：进度条 tint 改 `brand` + 轨道 `surfaceLayer(3)`（不再吃系统默认色）。
+- `StepsCardView`：`current` 步加 `brandOverlay` 底 + 圆角（与呼吸点同色系，不靠加粗抢注意力）。
+- `attrs.xml` 补声明 `colorOnSecondary / colorOnTertiary / colorOnError / colorError`
+  （主题里一直有映射，但 nonTransitiveRClass 下 Java/R.attr 没有符号，对比度测试无从引用）。
+
+**测试**：`ComponentColorWiringTest` 扩到 6 例（新增 todo/progress 卡片底色 == `ComponentTheme.surface`）；
+`ThemeContrastTest`（并行改动新增）随 attr 声明一起转绿。
+
+> 注：M3 角色的落点已由并行改动收敛为"生成器写进每套预设 overlay"（`tools/GenOverlays.java`），
+> 不再在 `ThemeManager` 叠 `ThemeOverlay.App.M3Roles` 兜底层；本文档 §8.1 的落点以代码为准。
+
+**第五批：预设 overlay 补全状态语义 role（同日）**
+- `tools/GenOverlays.java` 每套预设补 14 个 role：`colorError/colorOnError` +
+  `colorSuccess/OnSuccess/Container/OnSuccessContainer` + warning 四件套 + info 四件套
+  （成功/警告/提示引用 `@color/*` 固定语义色，夜间自动切；错误色跟随该预设 error 色板）。
+- 重新生成 light/night 两份 overlay：**31 套 × 46 role**，对比重跑前逐 item 校验
+  **+434 条、0 删除**（其他会话的产物完整保留）。
+- 新增 `PresetThemeRoleCoverageTest`：解析两份生成产物，钉住「31 套 / light-night 同名 /
+  每套 46 role 齐全 / 同一样式内无重复 item / surfaceContainer 恰好 5 档」。
+
+## [2026-11-18] feat(ui-tool)：动态画布控件接框架标准层（画布能跑但控件是"另一套"）
+
+用户口径：「我的动态画布工具可以运行，但是他使用的控件、按钮等和我的框架不兼容」。
+
+**定位**：外壳早就是框架的（`PythonToolManager` 用 `AppDialog.builder` + `ThemeOverlay.App.Dialog`），
+但画布内容全部由 `NativeLayoutRenderer` 手搓平台控件：`new android.widget.Button/EditText/
+Switch/SeekBar/Spinner` + `GradientDrawable` 手绘背景，硬编码 12/13/14sp 与 dp。结果是画布
+"颜色能跟主题、形态和交互是另一套"。
+
+**改动**
+- 新增 `ai/chat/component/CanvasControls`（画布控件工厂）：按钮 `MaterialButton`、输入
+  `TextInputLayout`+`TextInputEditText`（浮动标签/密码可见切换/多行）、开关 `SwitchMaterial`、
+  复选 `MaterialCheckBox`、单选 `MaterialRadioButton`、下拉 **M2 exposed dropdown**
+  （`TextInputLayout`+`MaterialAutoCompleteTextView`，箭头/弹层由框架给）、滑块
+  `Slider`/`RangeSlider`、分段 `ChipGroup`+`Chip`、标签 `Chip`+关闭图标、卡片
+  `MaterialCardView`（`AppCard`）、日期/时间 `MaterialDatePicker`/`MaterialTimePicker`
+  （宿主不是 FragmentActivity 或状态不允许时回退系统选择器）。样式全部**程序化配置**。
+- **真机踩坑（两个静默失效）**：① `new MaterialButton(ctx, null, X)` 的第三参是
+  **defStyleAttr（主题属性）**而不是样式资源，传 `R.style.*` 会静默退回默认样式（按钮/输入框
+  的圆角描边全丢，只剩 EditText 下划线）；② `TextInputLayout.addView()` 会刷新 hint，
+  先 `setText` 再挂载会被覆盖成空（下拉已选值不显示）——两处都已按"构造后显式 set / 挂载后回填"改。
+- `NativeLayoutRenderer` 的 button/input 家族/search_bar/tag_input/checkbox(_group)/
+  radio(_group)/slider/slider_range/switch/toggle/select/dropdown/stepper/date/time/
+  datetime/file/card 全部改走该工厂；layout JSON 契约（key/label/hint/value/options/action）不变。
+- **取值口径同步**（换控件最容易悄悄坏的一环）：`collectValues` 增 `CompoundButton`
+  （`SwitchMaterial` 不是 `android.widget.Switch`）与 `Slider` 分支；`applyValues` 增
+  `CompoundButton`/`Slider`（按 step 对齐）回填。
+- `PythonToolManager.collectButtons` 跳过 `CanvasControls.markOwned` 的控件：步进器 +/- 与
+  分段选择也是 `MaterialButton`，不能被执行链误绑成"提交整张画布"。
+- 顺带修掉：toggle 选中文字写死 `hc_ffffffff`（浅色/高对比主题下不可读）→ 主题
+  `colorOnPrimary`；卡片不再是手绘 LinearLayout；label/说明文字走 `Tokens` 档位。
+
+**测试**：`CanvasControlFrameworkTest`（Robolectric，11 例）钉住「控件类型是框架组件」与
+「collectValues/applyValues 仍按 key 取值回填」两侧。
+
+## [2026-11-18] feat(chat)：agent 执行态动效——原生活动行 + WebView 正文流式光标
+
+用户口径：「有没有可以用的动画库啊，目前我的ai对话界面agent执行时没有引入动画」
+「实际上我消息流是在webview中的」。
+
+**先盘依赖（结论：不引新库）**
+- `com.airbnb.android:lottie:6.4.0` 已在（`assets/lottie/loading_dots.json` + 组件画廊），但它是
+  "矢量资源动画"：每条运行时文案要备一个 json、颜色写死在资源里，换肤/任意文案都对不上；
+- `com.facebook.shimmer:shimmer:0.5.0` 2019 后停更，能力等价于给 `Paint` 挂 `LinearGradient`；
+- Compose BOM 在（`compose-bom:2024.02.02`），但对话页是 RecyclerView + View 体系，为一行内动效
+  嵌 ComposeView 不划算。**本次零新增依赖**。
+
+**原生（气泡里的活动行，不在 WebView 内）**
+- 新增 `ui/widget/LiveDotsView`：三颗点错峰呼吸（1.2s、21×14dp、自绘、离屏暂停/回屏续跑）；
+- `UiFx.shimmer(TextView, boolean)`：文字流光（1.4s、亮带 60% 文字宽、只做 alpha 0.55→1→0.55，
+  颜色取 `getCurrentTextColor()`，不写死）；tag 幂等（流式每 120ms 重绑不重启）、离屏摘 shader；
+- `ToolGroupPartRenderer`：运行时折叠头左侧出点阵 + 文字流光，结束即停；运行时去掉 `⏳` 前缀
+  （点阵即"进行中"信号，符合"状态去 emoji"口径），静态时 `GONE` 保持原左对齐不回归；
+- `ReasoningPartRenderer`：思考中折叠头走流光，定稿即停；
+- 目视入口：`UiKitGalleryActivity` 第 6 节（一键开/关）。
+
+**WebView（消息正文 / 思考正文真正的渲染处）**
+- `MarkdownHtmlConverter.css()`：`body.qz-streaming .qz-stream-tail::after` 画 2px 光标（1.05s 闪、
+  `prefers-reduced-motion` 下常亮）；`.qz-in` 让新闭合块 180ms 淡入（只动 opacity——位移会改
+  WebView 实测高度，列表 item 会抖）；
+- `bootstrapJs()`：`__qzStream` 按 `p.streaming` 切 `body.qz-streaming`；`qzMarkTail` / `qzMarkBodyTail`
+  给"最后一段还在长的内容"打光标落点（列表标到最后一项；整篇路径跳过 body 末尾 script），
+  换尾巴时重打标记而不搬 DOM（搬动会让 CSS 动画重启）；
+- `MarkdownWebView`：`wrapDocument(..., streaming)` 把类烤进整篇文档、`swapBody(html, streaming)`
+  同步这一帧真值——定稿必须摘类，否则光标会留在气泡里。
+
+**测试与验证**
+- 新增 `AgentMotionTest`：点阵 21×14dp、shimmer 挂 `LinearGradient` / 重复 true 不重建 / stop 摘干净；
+- `MarkdownHtmlConverterTest` 增 2 条：流式文档带 `class="light qz-streaming"` + 三个 JS/CSS 钩子，
+  定稿不带类；
+- 真实浏览器验证：导出 `wrapDocument(streaming=true)` 产物，用 Edge headless 跑 `__qzStream`
+  （reset + apply），截图确认光标在尾巴末尾、新块淡入、定稿无光标；`node --check` 校验生成 JS 语法；
+- `compileDebugJavaWithJavac` 通过、`testDebugUnitTest` 全绿。
+
+**第二批：执行类 part 卡片 + 新 part 入场（同一批，用户口径「还有执行效果part组件等」）**
+- `LiveDotsView` 改成**系统时钟相位**（`SystemClock.uptimeMillis() % 1.2s`）并支持 `setDotCount(1)`：
+  执行类卡片会被每 tick 重建（工具卡 remove+add、工具行 release+add），若相位由"本实例 Animator
+  从 0 起"驱动，重建后永远停在相位 0、看着像静止装饰；时钟相位让任意时刻的新实例都落在正确位置。
+  顺带去掉每行一个 Animator（离屏不画即不自刷新）。
+- 执行类卡片接上"运行中"呼吸点：工具明细行（`ToolActivityRowView`）、单工具卡（`ToolCallCardView`）、
+  命令/代码卡（`CodeCardView` 头部的"运行中"）、步骤卡的 `current` 步（替代静态图标）、
+  子代理轨迹卡（有步骤在跑/刚起时用呼吸点，全部结束才落回静态圆点）。
+- 新 part 入场：`TurnPartsHost` 记 `createdThisBind()`（只报本次新建的视图，复用/重绑不报），
+  `ChatAdapter` 在**流式消息**绑定后对新建视图调 `UiFx.riseIn(view, 220)`（淡入 + 上移 6dp；
+  不用横向滑入——`partsContainer` 的 clipChildren 会把左边几个字裁掉）。
+- 测试：`AgentMotionTest` 增单点 5×14dp；`TurnPartsHostTest` 增"只报新建视图"（复用/重绑必须为空）；
+  新增 `ExecutionCardLiveDotTest`：运行中的 tool_call / dsh_command / steps(current) / subagent 有且仅有
+  一颗呼吸点，完成态为 0。
+- 目视入口：`UiKitGalleryActivity` 第 6 节新增行内单点示例。
+
+**第三批：思考块容器（用户口径「思考过程及思考详情，没有自己的容器。动画样式等不好做」）**
+- 新增 `ai/chat/ui/ReasoningShellView`：思考段此前是"裸 TextView 当折叠头 + 裸正文"，
+  展开/收起只能整块 `setVisibility`，箭头/底色/悬停都没有可挂的地方。现在按设计稿
+  （`docs/ui/ai-chat-redesign.md` §思考行）补回容器结构：
+  - 折叠头：32dp 胶囊（`chat_v2_think_height`）＝ ✦ 图标 + 呼吸点（仅流式）+ 状态文字 + ⌄ 箭头，
+    整行可点（带 ripple）；箭头展开转 90°。
+  - 正文容器：`FrameLayout` + `chat_v2_think_body_bar`（左侧 2dp 引导线）+ 内边距；
+    WebView / 原生 TextView 由渲染器塞进来，正文横向留白改由容器统一给（不再双重缩进）。
+- 展开/收起动画：`UiFx.animateHeight`（新原语，动效层唯一实现；对话页 Java 仍禁止手写
+  `ValueAnimator.of`）＋ `UiFx.rotateChevron`。展开 200ms、收起 180ms；系统关动画时直接切；
+  只在**状态真的变化**时播——流式每 120ms 重绑不会反复展开，流式→定稿那一帧才播一次收起。
+- 折叠头文案去掉 `▾/▸` 前缀（展开态由箭头表达）；流式呼吸点/文字流光照旧。
+- 测试：新增 `ReasoningShellViewTest`（容器结构 / 正文可见性 / 流式呼吸点 / 整行点击）；
+  `TextAndReasoningRendererTest` 10 条按新结构更新（断言口径不变：流式整块刷新、定稿收起、
+  点开才整篇渲染、web/native 分派）。
+- 遗留项：legacy 路径（`ChatAdapter` 的 `view_chat_v2_think_line.xml`）未改，仍是旧结构；
+  parts 为出厂默认，legacy 只作回退。
+
+**第四批：折叠头状态化（用户口径「part 折叠头太死板，对标业界设计，生成态/结束态」）**
+- 对标结论（Vercel AI Elements `Reasoning`、assistant-ui Chain of Thought、Telerik LLM Kit）：
+  业界把推理做成**一个可折叠的"活动行"**——流式时自动展开、状态文字带脉动/流光、显示耗时，
+  结束时自动收起并给"Thought for Xs"；多段推理 + 工具调用会**合并成一个思考手风琴**。
+- 本次落地（原生、不改数据模型）：
+  - **生成态**：文字走主题主色 + 整行 6% 主色圆角底 + 呼吸点 + 文字流光；
+  - **结束态**：文字回次级色、底色撤掉；先保持展开 700ms 让人看完最后一句，再播 180ms 收起
+    （`ReasoningPartRenderer.AUTO_COLLAPSE_MS`，用户点过折叠头则以其选择为准）；
+  - **没有正文**时不显示箭头（避免"点了没反应"的暗示），右侧留白用 INVISIBLE 保持稳定；
+  - 延迟收起用独立 `Handler` 而不是 `view.postDelayed`：绑定那一刻视图可能还没 attach，
+    未 attach 的 post 会进待执行队列、不保证按点跑。
+- 测试：`TextAndReasoningRendererTest` 定稿用例加 `idle(900)` 覆盖"留一拍再收起"。
+- 未做（需要改 parts 数据模型，建议单独排期）：把**连续的 reasoning + tool_group 合并成一个
+  "思考手风琴"**（assistant-ui 的 `GroupedParts` 口径），现在是每段各一个折叠头。
+  → 已在第五批完成，见下。
+
+**第五批：思考手风琴（用户口径「可以，你意思做好」→ 合组）**
+- `AssistantTurn.coalesceThinking(parts)`：渲染前把**相邻**的 reasoning / tool_group 合成一个
+  `thinking` part（id = `<首个成员 id>:cot`，成员放 `group`；单成员也合并，保证后续工具加入时
+  id 不变、视图复用不闪）。只作用于绑定副本，**不改**引擎的流式 id 寻址。
+- `ThinkingPartRenderer`：一轮只出一个折叠头（复用 `ReasoningShellView`）；折叠体内按时间顺序
+  排"思考段 + 工具行"，产物卡放常显区（折叠不藏图片/图表/文件）；生成态主色 + 呼吸点 + 流光 +
+  自动展开；结束态留 700ms 后自动收起；空正文不显示箭头。
+- 思考段改用宿主的 markdown 通路（流式 `setText` 快路径、定稿 `renderMarkdown` 一次），
+  不再每段一个 `MarkdownWebView`；视图按成员 id 缓存复用。
+- 开关 `ThinkingGroupFlag`（`ai_chat_prefs` / `thinking_group`，出厂开）：关掉即回到
+  "每段一个折叠头"的旧结构。
+- 测试：`AssistantTurnCoalesceTest`（合并/文本与审批切断/流式态/不改入参）、
+  `ThinkingPartRendererTest`（一个头、正文行数、工具短语优先、结束留一拍再收起）、
+  `PartsTurnBinderTest` 增接线用例（默认注册表 + 相邻思考/工具 → 容器只出一个手风琴）。
+- 说明：全量单测在本机需 `JAVA_TOOL_OPTIONS=-XX:TieredStopAtLevel=1` 才能跑完——
+  JDK 21 的 C2 编译器在 `BrowserStore.write` 上会崩（hs_err 记 `C2 CompilerThread` /
+  EXCEPTION_ACCESS_VIOLATION），与本批改动无关。
+
+**第六批：执行活动区 WebView 组件 PoC（用户口径「WebView 组件 PoC」）**
+- 目的：验证"用 web 组件承载 agent 执行区"。**只替换执行活动区**（思考 + 工具调用），
+  正文/文件媒体卡/审批/输入区仍原生。
+- 页面 `src/main/assets/agent_panel/agent_panel.html`：自包含、零三方依赖、离线；
+  头部（✦ + 呼吸点 + 文案 + 箭头）、折叠体（思考段 + 工具行）、流式自动展开 / 结束 700ms 收起、
+  工具行点开输出、右下角注入耗时 + FPS；`?demo=1&updates=&interval=` 可在浏览器直接看。
+- `AgentPanelView`：`loadDataWithBaseURL` 加载资产、`update(JSONObject)` → `window.qzAgent.update`、
+  `Android.onHeight` 回传高度并钉 WebView 高、`Android.onStats` 回传指标；
+  `AgentPanelPayload` 与原生共用 `ThinkingSummary` 的文案口径（避免两套 UI 各说各话）。
+- 开关 `agent_panel_web`（`ai_chat_prefs`，**出厂关**）：开则 `ThinkingPartRenderer` 用 WebView，
+  关则原生手风琴；PoC 页内可一键切换。
+- PoC 页 `AgentPanelPoCActivity`（UI 工具包第 7 节进入）：60 帧 × 80ms 模拟流，显示首帧耗时、
+  注入 avg/max、页面 FPS、高度回传次数。
+- 验证：`AgentPanelPayloadTest`（文案/步骤/主题变量）、`AgentPanelViewWiringTest`
+  （开关打开→出 `AgentPanelView`；页面就绪后注入载荷含 thinking/tool 步）；
+  Chromium headless 截图见 `docs/ui/agent-panel-poc_shots/`（流式中 / 结束收起）。
+- **内存/卡顿封堵（同批补）**：
+  - `AgentPanelBudget`：同进程最多 **3** 个 WebView 面板，超限 `createView` 直接回落原生手风琴；
+  - `AgentPanelView implements ComponentLifecycle.Releasable`：`releaseView` 与
+    `ChatAdapter.releaseAndClearComponents` 两条释放路径都会 `destroy()`；`releaseComponent()` 幂等；
+    释放顺序 = 摘 JS 桥 → stopLoading → about:blank + clearHistory/clearFormData → 摘出父容器 → destroy
+    → 监听器置空 + 归还额度；
+  - 离屏只 `onPause`（列表滚动会反复 attach/detach），销毁只发生在"确定不再复用"时；
+  - 测试：`AgentPanelBudgetTest`（上限/归还/不为负）、`AgentPanelViewWiringTest`
+    增"释放幂等 + `wasDestroyCalled()` + 额度用尽回落原生"。
+- 结论待真机数据：门槛为首帧 ≤350ms、注入 avg ≤4ms、max ≤16ms、FPS ≥55；未迁移产物卡、
+  文本复制、系统字体缩放，细节与取舍见 `docs/ui/agent-panel-web-poc.md`（含"会不会卡/内存回收"两节）。
+
+**第七批：分组折叠的"卡片感"（用户口径「分组折叠看着差点意思」）**
+- 收起态折叠头落一块 `?attr/colorSurfaceVariant` 圆角底（`chat_v2_scene_radius`），展开态撤掉、
+  交回正文左侧 2dp 引导线：一条消息里连续多个手风琴时，能一眼看出"这是几组"；
+  浅色/深色都由主题 attr 决定，不新增写死色。
+- 手风琴之间补 4dp 上间距，避免两组贴成一坨。
+- WebView PoC 面板同步：载荷加 `--surface2`，`.panel:not(.open):not(.streaming) .head` 用同一块底色。
+- 真机验证（25113PN0EC）：浅色/深色截图见 `docs/ui/reasoning-group-shots/`；全量单测通过。
+- 仍待补：DSH 侧 reasoning 没有 `durationMs`，收起态只能显示"已深度思考 · 调用 N 个工具"（无秒数）；
+  要更像业界"Thought for Xs"，需要上游补时长，或改"全程 X 秒"口径（会与纯思考时长语义混淆，未擅自改）。
+
+**第八批：折叠态副标题（用户口径「收起时也能看出刚才在干嘛；调几个工具的显示就不要了」）**
+- 收起态折叠头加第二行 muted 小字：`已完成 · 最后：终端命令 · $adb='D:\Android\Sdk\platform-…`。
+  - 状态放**最前**：折叠头只有一行，参数一长会 ellipsize 到结尾，`（已完成）` 放末尾在手机上永远看不到；
+  - 参数预览复用工具行同一套 `argsPreview`（人话化），再截 30 字；
+  - 只在「收起 + 已结束 + 有工具」时显示；展开/流式不占位。
+- 头部文案去掉"调用 N 个工具"（用户口径：有最后一步就不用报总数）：`已深度思考[ X 秒]` / `已执行`。
+- `ReasoningShellView` 结构改为 headerBox = 上行（图标+文案+箭头）+ 下行摘要，chip 底/ripple/点击区都落在 box 上；
+  WebView 面板同步（`.sub` 行 + `summary` 字段）。
+- 测试：`ThinkingPartRendererTest`、`AgentPanelPayloadTest`、`ReasoningShellViewTest` 补摘要断言；真机截图核对（浅色）。
+- 仍未做（需改分段模型）：一轮 DSH 回合按 6 步一条消息派发（`SegmentSealPolicy.STEPS_PER_SEGMENT`），
+  所以一轮会有多个折叠头 + 多条操作栏；"每轮一个折叠"要么调大步长（流式投影变贵）、
+  要么在渲染层按 `turnId` 合并消息（改动大），要么先只隐藏中间段的操作栏（低风险）。
+
+**第九批：事件节奏与折叠修复（用户口径「插件协议能不能每个事件发送、做缓存器，别让 UI 同时收到多个事件」）**
+- **查证：协议不用改**。插件 live 路径本来就是"一个事件一帧"：
+  `wsBroadcast(sid, { type: 'event', event })`（`index.js:3121`），SSE 同口径（`:6421`）；
+  批量只出现在历史/补拉（`/ws/ctl` 的 `batch` 帧 `:8724`、`/events` 返回数组）——那是一次性同步，
+  拆成单条会让首屏变几百帧。
+- **合帧点在客户端**：`EventBatchQueue` 一帧最多取 50 条、帧末只投影一次 → 工具 start→result
+  压进同一帧，折叠头看不到"运行中"，只能"展开→直接收起"。
+- 改为**自适应出队**（缓存器保留，调节奏）：积压 ≤4 时一次 1 条、间隔 45ms（≈22 条/秒，每步一次投影）；
+  积压 >4 回到 16ms/最多 50 条的合帧追赶（防主线程淹没）。判断抽成纯函数
+  `EventFlowPolicy.takeCount(depth, batchMax, paceDepth)` + 单测。
+- **修"不好折叠"的直接 bug**：流式期间用户点收起，下一批事件重绑时 `bindExpanded` 先判 active
+  又把块撑开；现在 **override 优先于 active**（用户选择优先），新增
+  `userCollapseSurvivesStreamingRebind` 单测。
+- 真机：装包后当前流里折叠头显示"正在运行 终端命令"（不再同帧跳到完成）；全量单测通过。
+
+**第十批：UI 呈现节拍器（用户口径「合起来也该给 UI 反应时间，做接收器，必要时节流」）**
+- 新增 `PresentationPacer`（纯类 + 单测）：事件继续在 `EventBatchQueue` 里合并，但**两次 UI 投影至少隔 120ms**
+  ——每 120ms 把攒下的事件（≤50 条）归约成**一次完整投影**再告知 UI，避免"一批接一批"把 200ms 的折叠动画打断。
+- `AIChatActivity.drainDshFrame`：先问节拍器能不能投；不能就留在队列里继续合并并只推迟一小拍；
+  投完记时刻，下一次按 `delayUntilNext` 排。参数：`PresentationPacer.DEFAULT_MIN_INTERVAL_MS=120`、
+  `DSH_EVENT_BATCH_MAX=50`。
+- **防泄漏**：`onDestroy` 除了摘 handler，还 `dshPacer.reset()` + `dshEventQueue.clear()`，
+  不让队列里待上屏的 JSON 继续引用 Activity；队列本身仍有界（2000，丢最旧并计数）。
+- 真机核对：当前回合三段折叠都稳定显示"已完成 · 最后：…"摘要，无抖动；全量单测通过。
+- 若还要"极快工具也看得见运行中"：需要加**最短驻留时间**（running 状态至少显示 ~200ms 再允许切完成），
+  这是下一步可选，不和节流混在一起。
+
+**第十一批：按事件类型分开折叠（用户口径「一组里既有思考又有工具，折叠故障」）**
+- `ThinkingGroupFlag` 出厂档改为**关**：reasoning 和 tool_group 不再合并进一个 thinking part，
+  思考一个折叠（`ReasoningPartRenderer`）、工具组一个折叠（`ToolGroupPartRenderer`），
+  各自独立展开/收起，用户选择优先于自动状态。
+- 工具组：运行中自动展开 + 呼吸点，结束 700ms 后自动收起；收起态落 `colorSurfaceVariant` 圆角底；
+  去掉 `🔧` 前缀（和思考折叠并排时 emoji 只在一侧，视觉吵）；组间 4dp。
+- 混合折叠只留 `thinking_group=true` 对照，不是默认；`PartsTurnBinderTest` 改为默认断言 2 个折叠、
+  开关打开才断言 1 个。
+
+**第十二批：思考文案与过程预览（用户口径「已深度思考不行，文案换成深度思考；思考过程我之前做了」）**
+- 文案：`chat_v2_thought_done` / `chat_v2_thought_for_steps` / `..._steps_only` / `..._steps_tools*`
+  全部由"已深度思考…"改为"深度思考…"；`ReasoningPartRenderer` 的时长文案同步为"深度思考 X 秒"，
+  混合折叠 `ThinkingSummary`、WebView PoC 文案一并改。legacy 路径读同一批资源，自动生效。
+- 接回 2026-10-25 落下的 `ThinkingPreview`：思考折叠**收起态第二行**显示"最新已完成段落首行"
+  （流式中收起也显示，让用户看到想到哪一步）；按文本/流式态缓存，文本没变不重复过 JNI。
+- 动效/状态机沿用已有实现，不重做：`ChatMessage.inferenceProgress.phase` + `InferenceStatusPhrases`
+  推进阶段文案、`UiFx.shimmer` 走光、`LiveDotsView` 呼吸点、结束后 700ms 自动收起。
+- 测试：更新标签断言 + 新增"收起态显示 ThinkingPreview 摘要"断言；全量通过。
+
+**第十三批：多工具折叠头显示工具名（用户口径「单工具有文案，多工具一直没有」）**
+- `ToolGroupPartRenderer` 的多工具头部不再写"已运行 N 个工具"/"N 个工具执行中"：
+  - 新增 `namesSummary(members, maxNames)`：按出现顺序取**去重后的展示名**（与单工具同走
+    `ToolMetaRegistry.displayName`），用"、"连接；超过 3 个追加"等 N 个工具"（N=不同工具名数）；
+  - 运行中且没有 `statusText` 时也走名字摘要（"正在运行 终端命令、读取文件"），有状态机短语时仍优先用它；
+  - 单工具行为不变（直接显示工具名）。
+- 测试：`PartsCoverageTest` 新增两条——两个工具断言"读取文件、查看图片"；四个工具断言前 3 个 + "等 4 个工具"。
+- 真机：折叠头已显示"终端命令、读取文件"；全量单测通过。
+
+**第十四批：工具详情专用卡（用户口径「工具详情专用卡基本上没设计，平铺显示」）**
+- 新增 `ToolDetailCardView`（parts 包，纯 View 组装，不引第三方卡片库）：
+  - 头部：状态点 + 工具展示名 + 耗时 + 状态（运行中/已完成/失败）；
+  - 参数区：已知键做"标签 + 等宽值"（命令/路径/类型/查询/匹配/链接/目标/写入行数），未知形状退回 JSON 预览；
+  - 正文区：editing 类（`old_string`/`new_string`）走 `SimpleLineDiff.hunks` 渲染 `+/-` 行；其余工具结果等宽块（20k 字符上限，可选中）；
+  - 弹层：`AppSheet` + 复制全文/关闭，替换原来"整段等宽文本"的 `ToolDetailSheet` 打开路径。
+- `ToolResultText.renderable/pathOf/typeOf`：把 `<path>/<type>/<content>` 结构化结果拆成人话，
+  行内预览与详情卡共用——`read_image` 不再平铺 XML 标签。
+- 接线：工具行预览被截断时点开 → 详情卡（`ToolActivityRowView.applyBody`）。
+- 测试：`ToolDetailCardViewTest` 三条（读文件元数据+结果/编辑 diff/运行中不铺结果），
+  以及 XML 结果拆标签一条；全量通过，已装机。
+
+**待补**（同一方向，下一批可选）：图片真实缩略图需要协议回传字节（目前只有 path/type）；
+grep/搜索类做成"匹配列表"；read_file 加行号；终端输出按 ANSI/JSON 着色。
+
+**第十五批：工具皮肤与搜索/语法（用户口径「每类工具一张皮、grep 列表、可以引语法库」）**
+- `ToolDetailCardView` 按工具类型分皮肤：终端/改动/文件/搜索/图片/通用——顶部 3dp 类型色条 +
+  头部徽标（终端/改动/文件/搜索/图片），正文分别用 `$ 命令` 提示行、红绿底 `+/-` diff、
+  行号代码块、匹配列表、路径卡；不再所有工具一张灰卡。
+- grep/搜索：`文件:行:内容` 解析成"路径:行号 + 片段"列表（最多 30 条，兼容 Windows 盘符冒号），
+  解析不出退回通用结果块。
+- 语法着色：新增 `CodeHighlighter`（关键字/字符串/注释/数字四类 Span，shell/python/java/kotlin/json），
+  没引第三方库——工具片段小，四类着色已够扫读；要完整语法高亮再换库。
+- 测试：终端皮肤、行号、grep 列表断言；全量通过，已装机。
+- 图片缩略图仍未做：需要插件协议回传字节 + 本地工具"可访问地址约定"
+  （见答复里的约定草案，等插件侧实现后接 Reader）。
+
+**第十六批：文件回传渲染链路（用户口径「基础设施好了，就是渲染器的问题」）**
+- `ToolAssetRef`：解析 `<ref kind id mime w h bytes/>`，并按 mime 分发 `RenderKind`
+  （image/code/pdf/audio/video/diff/file）；缺 id 返回 null 回落文字卡。
+- `AssetLoader`：按 id 请求 → `cacheDir/tool_refs/<id>`，`.part` + rename 原子落盘、单飞、可取消、
+  失败回调；纯 Java，`Fetcher` 注入。
+- `PluginAssetFetcher`：`GET {base_url}/file/{id}?token=…`（设备令牌优先），走 OkHttp。
+- `AssetRenderer`：按 RenderKind 出视图——图片（采样解码）、代码/文本（CodeHighlighter）、diff、
+  pdf/音频/视频/文件卡；加载中/失败·重试态；弹层 dismiss 时 `cancel(id)`。
+- `ToolDetailCardView`：结果里有 `<ref>` 就走文件渲染器（图片只显示图，其余图+文本）。
+- 测试：`AssetLoaderTest` 5 条（内存/磁盘命中、单飞、取消、失败）、`ToolAssetRefTest` 8 条、
+  grep 列表断言；全量通过，已装机。
+- 插件侧仍需：`GET /file/:id` 与工具结果输出 `<ref>`；未接前自动回落文字卡。
+
+**第十七批：按需 file_get（纠正：插件不用改，手机端补请求侧）**
+- 核对插件：`/ws/file` 已支持 `file_get{path,id}` → `file_begin/chunk(b64)/end`（白名单、32MB、sha256），
+  电脑插件一行不用改；缺的是手机端从未发过 `file_get`（`open_file` 只弹 Toast）。
+- 新增 `DshFileClient`：用 `RemoteDshTool.openLiveSocket(..., "/ws/file")` 开通道并发
+  `{type:'file_get', path, id}`；发送失败返回 false（渲染器立即失败态，不干等）。
+- `ToolAssetRef.fromPath(path)`：结果只有 `<path>` 没有 `<ref>` 时，按路径哈希合成 id、
+  按扩展名猜 mime——先用现有工具输出就能取图，不必等工具改协议。
+- `ReceivedFileFetcher`：`peek` 命中 → 否则 `file_get` → `await(15s)`；`AssetLoader` 线程改 daemon。
+- `AssetLoader.Fetcher.open(id, path)`、`request(id, path, cb)`：path 一路传到请求侧。
+- 测试：`DshFileClientTest`(帧格式)、`ToolAssetRefTest`(fromPath 稳定 id)、`AssetLoaderTest` 5 条、
+  `ReceivedFileStoreTest` 3 条；全量通过，已装机。
+
 ## [2026-11-14] feat(remote_dsh)：对话页 M8 外壳——顶栏改远程语义、本地 chip 收起、空首屏换电脑入口
 
 用户口径：「对话界面没有对 DSH 远程连接做专门优化」「你先验证，然后执行改造」。

@@ -288,6 +288,38 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 新版画布（独立工具 ui_canvas）自检：--es mode canvas_v2 --es template form|settings|dashboard
+        if ("canvas_v2".equals(getIntent().getStringExtra("mode"))) {
+            try {
+                java.util.Map<String, Object> args = new java.util.HashMap<>();
+                args.put("action", "create");
+                args.put("title", "V2 画布");
+                String jsonB64 = getIntent().getStringExtra("json_b64");
+                String ctype = getIntent().getStringExtra("ctype");
+                if (jsonB64 != null && !jsonB64.isEmpty()) {
+                    args.put("layout", new String(android.util.Base64.decode(
+                            jsonB64, android.util.Base64.NO_WRAP),
+                            java.nio.charset.StandardCharsets.UTF_8));
+                } else if (ctype != null && !ctype.isEmpty()) {
+                    args.put("component_type", ctype);
+                } else {
+                    args.put("template", getIntent().getStringExtra("template"));
+                }
+                com.oilquiz.app.ai.tool.AIToolResult r =
+                        com.oilquiz.app.ai.tool.AIToolManager.getInstance(this)
+                                .executeTool("ui_canvas", args);
+                Log.i(TAG, "CANVAS_V2=" + (r == null ? "null"
+                        : "success=" + r.isSuccess() + " result=" + r.getResult()
+                        + " err=" + r.getErrorMessage()));
+            } catch (Throwable t) {
+                Log.e(TAG, "canvas_v2 自检失败: " + t.getMessage(), t);
+            }
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (!isFinishing()) finish();
+            }, 60000);
+            return;
+        }
+
         // 无注入参数直接打开 = 可视化预览台；带 layout/card/url 等参数时保持原 adb 注入行为。
         if (isPreviewRequest()) {
             openPreviewConsole();

@@ -252,6 +252,8 @@ public class AIToolManager {
         registerToolFactory("dashscope_media", DashscopeMediaTool.class, DashscopeMediaTool::new);
         registerToolFactory("ui_component", SystemUIComponentTool.class, SystemUIComponentTool::new);
         registerToolFactory("ui_component_plugin", UIComponentPluginTool.class, UIComponentPluginTool::new);
+        // 2026-11-18：新版动态画布（独立工具，不碰 ui_component 的 layout_canvas）
+        registerToolFactory("ui_canvas", UICanvasTool.class, UICanvasTool::new);
         registerToolFactory("control_lookup", ControlLookupTool.class, ControlLookupTool::new);
         registerToolFactory("layout_editor", LayoutEditorTool.class, LayoutEditorTool::new);
         registerToolFactory("tool_registry", ToolRegistryTool.class, ToolRegistryTool::new);
