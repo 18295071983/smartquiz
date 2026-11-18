@@ -365,7 +365,10 @@ public final class LayoutCanvasConstraints {
                 (int) (screenH * MAX_CANVAS_HEIGHT_RATIO), note, "最大高");
 
         String hRaw = String.valueOf(props.opt("canvas_height"));
-        if (isWrapKeyword(hRaw)) {
+        // 2026-11-18：没指定高度时不再固定 72% 屏高——小表单会开成半屏空白。
+        // 默认改为"随内容自适应 + 72% 屏高封顶"：内容少就矮，内容多到上限再内滚。
+        boolean noHeightSpec = !props.has("canvas_height") && !props.has("canvas_max_height");
+        if (isWrapKeyword(hRaw) || noHeightSpec) {
             size.wrapHeight = true;
             size.maxHeightDp = maxH > 0 ? maxH : (int) (screenH * DEFAULT_CANVAS_HEIGHT_RATIO);
             size.specified = true;

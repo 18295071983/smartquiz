@@ -288,6 +288,36 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 画布模板 / 屏幕信息自检（2026-11-18）：
+        //   --es mode canvas_template --es template form|settings|dashboard
+        //   --es mode screen_info
+        // 走真实的 ui_component 工具链路，结果打到 logcat（CANVAS_SELFCHECK=...）。
+        String selfCheckMode = getIntent().getStringExtra("mode");
+        if ("canvas_template".equals(selfCheckMode) || "screen_info".equals(selfCheckMode)) {
+            try {
+                com.oilquiz.app.ai.tool.AIToolManager tm =
+                        com.oilquiz.app.ai.tool.AIToolManager.getInstance(this);
+                java.util.Map<String, Object> args = new java.util.HashMap<>();
+                if ("canvas_template".equals(selfCheckMode)) {
+                    args.put("action", "create");
+                    args.put("component_type", "layout_canvas");
+                    args.put("title", "模板画布");
+                    args.put("template", getIntent().getStringExtra("template"));
+                } else {
+                    args.put("action", "screen_info");
+                }
+                com.oilquiz.app.ai.tool.AIToolResult r = tm.executeTool("ui_component", args);
+                Log.i(TAG, "CANVAS_SELFCHECK=" + (r == null ? "null" : r.getResult()));
+            } catch (Throwable t) {
+                Log.e(TAG, "canvas selfcheck 失败: " + t.getMessage(), t);
+            }
+            // 留 60s 给截图（模板画布会弹窗），再自动收尾避免窗口泄漏
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (!isFinishing()) finish();
+            }, 60000);
+            return;
+        }
+
         // 无注入参数直接打开 = 可视化预览台；带 layout/card/url 等参数时保持原 adb 注入行为。
         if (isPreviewRequest()) {
             openPreviewConsole();

@@ -158,6 +158,11 @@ public class AgentToolView {
 
         // ===== 1. 动态工具 =====
         addSectionTitle("🔧 动态工具（dynamic_tools.json 持久化）");
+        // 2026-11-18（用户口径）：有 UI 的动态工具要有"点击入口插槽"，点了能不经过对话直接操作。
+        // 约定：让 Agent 用 layout_editor(action=pin, name=<工具名>_ui) 把画布固定成组件类型，
+        // 这里就会给该工具显示「🖼 打开 UI」；「▶ 运行」始终可用（直接执行工具，不经模型）。
+        addHint("插槽约定：动态工具的 UI 固定成组件类型（建议名 <工具名>_ui）后，这里出现「🖼 打开 UI」；"
+                + "「▶ 运行」可直接执行工具，不经过对话。");
         AIToolManager manager = AIToolManager.getInstance(context);
         List<String> toolNames = manager.getDynamicTools();
         if (toolNames.isEmpty()) {
@@ -505,7 +510,146 @@ public class AgentToolView {
                 card.addView(logicTv);
             }
         }
+        // 2026-11-18（用户口径）：动态工具要有"点击入口插槽"——点了能不经过对话直接操作。
+        // 「▶ 运行」始终可用（直接执行工具，不经模型）；有配对 UI 组件类型时再给「🖼 打开 UI」。
+        LinearLayout actions = new LinearLayout(context);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setPadding(0, dp(6), 0, 0);
+        actions.addView(actionButton("▶ 运行", R.color.primary,
+                () -> showRunDialog(toolName, tool)));
+        final String uiType = findUiType(toolName);
+        if (uiType != null) {
+            LinearLayout.LayoutParams uiLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            uiLp.setMargins(dp(6), 0, 0, 0);
+            actions.addView(actionButton("🖼 打开 UI", R.color.secondary,
+                    () -> openRegistered(uiType, "🖼 " + uiType).run()), uiLp);
+        }
+        card.addView(actions);
+
         listContainer.addView(card);
+    }
+
+    /** 动态工具的 UI 组件类型名：<工具名> / <工具名>_ui / <工具名>_card 任一已注册即算有 UI。 */
+    private String findUiType(String toolName) {
+        try {
+            com.oilquiz.app.ai.tool.UIComponentTypeRegistry registry =
+                    com.oilquiz.app.ai.tool.UIComponentTypeRegistry.getInstance(context);
+            for (String candidate : new String[]{toolName, toolName + "_ui", toolName + "_card"}) {
+                if (registry.getType(candidate) != null) {
+                    return candidate;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /** 小操作按钮（与「删除」同款文字按钮，颜色区分主/次）。 */
+    private TextView actionButton(String text, int colorRes, Runnable onClick) {
+        TextView btn = new TextView(context);
+        btn.setText(text);
+        btn.setTextSize(12);
+        btn.setGravity(Gravity.CENTER);
+        btn.setTextColor(color(colorRes));
+        btn.setBackground(pillBackground(R.color.surface_variant));
+        btn.setPadding(dp(10), dp(5), dp(10), dp(5));
+        btn.setOnClickListener(v -> {
+            try {
+                onClick.run();
+            } catch (Throwable t) {
+                Toast.makeText(context, "操作失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+        return btn;
+    }
+
+    /** 直接运行动态工具：按参数名生成输入框（可选），后台执行，结果弹窗。 */
+    private void showRunDialog(final String toolName, AITool tool) {
+        LinearLayout form = new LinearLayout(context);
+        form.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(12);
+        form.setPadding(pad, pad, pad, pad);
+        final java.util.LinkedHashMap<String, com.google.android.material.textfield.TextInputLayout> fields =
+                new java.util.LinkedHashMap<>();
+        Map<String, String> params = tool.getParameterDescriptions();
+        if (params != null && !params.isEmpty()) {
+            for (Map.Entry<String, String> e : params.entrySet()) {
+                com.google.android.material.textfield.TextInputLayout til =
+                        com.oilquiz.app.ai.chat.component.CanvasControls.input(
+                                context, e.getKey(), e.getValue(), "");
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.setMargins(0, 0, 0, dp(8));
+                form.addView(til, lp);
+                fields.put(e.getKey(), til);
+            }
+        } else {
+            TextView empty = new TextView(context);
+            empty.setText("该工具没有参数，直接运行即可");
+            empty.setTextSize(12);
+            empty.setTextColor(color(R.color.text_secondary));
+            form.addView(empty);
+        }
+        android.widget.ScrollView sv = new android.widget.ScrollView(context);
+        sv.addView(form);
+
+        com.oilquiz.app.ui.modal.AppDialog.builder(context)
+                .setTitle("运行 " + toolName)
+                .setView(sv)
+                .setPositiveButton("运行", (d, w) -> {
+                    Map<String, Object> args = new java.util.HashMap<>();
+                    for (Map.Entry<String, com.google.android.material.textfield.TextInputLayout> e
+                            : fields.entrySet()) {
+                        android.widget.EditText et =
+                                com.oilquiz.app.ai.chat.component.CanvasControls.editOf(e.getValue());
+                        if (et == null) continue;
+                        String value = et.getText() == null ? "" : et.getText().toString();
+                        if (!value.isEmpty()) {
+                            args.put(e.getKey(), value);
+                        }
+                    }
+                    runToolAsync(toolName, args);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 后台执行 + 主线程展示结果（工具可能耗时，不能压 UI 线程）。 */
+    private void runToolAsync(final String toolName, final Map<String, Object> args) {
+        new Thread(() -> {
+            String text;
+            try {
+                com.oilquiz.app.ai.tool.AIToolResult r =
+                        AIToolManager.getInstance(context).executeTool(toolName, args);
+                if (r == null) {
+                    text = "（无返回）";
+                } else if (r.isSuccess()) {
+                    text = String.valueOf(r.getResult());
+                } else {
+                    text = "失败: " + r.getErrorMessage();
+                }
+            } catch (Throwable t) {
+                text = "异常: " + t.getMessage();
+            }
+            final String out = text;
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                    com.oilquiz.app.ui.modal.AppDialog.builder(context)
+                            .setTitle("运行结果 · " + toolName)
+                            .setMessage(out)
+                            .setPositiveButton("关闭", null)
+                            .show());
+        }, "dynamic-tool-run").start();
+    }
+
+    /** 区块说明（讲"插槽约定"这类用法，比 addEmpty 轻）。 */
+    private void addHint(String text) {
+        TextView tv = new TextView(context);
+        tv.setText(text);
+        tv.setTextSize(11);
+        tv.setTextColor(color(R.color.text_tertiary));
+        tv.setPadding(dp(4), 0, dp(4), dp(6));
+        listContainer.addView(tv);
     }
 
     private int color(int resId) {

@@ -5,7 +5,6 @@ import android.graphics.Color;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -16,6 +15,13 @@ import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.slider.RangeSlider;
+import com.google.android.material.slider.Slider;
+import com.google.android.material.switchmaterial.SwitchMaterial;
+import com.google.android.material.textfield.TextInputLayout;
+
+import com.oilquiz.app.ai.chat.component.CanvasControls;
 import com.oilquiz.app.ai.chat.component.ComponentColors;
 
 import java.util.HashMap;
@@ -24,6 +30,7 @@ import java.util.Map;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.theme.ThemeColors;
+import com.oilquiz.app.theme.Tokens;
 /**
  * 项目级原生 UI 框架：把 JSON 声明的原生控件树（layout）编译渲染成真实 Android View。
  *
@@ -470,28 +477,34 @@ public class NativeLayoutRenderer {
                 return sv;
             }
             case "card": {
-                // 卡片容器：圆角 + 边框 + 可选标题，包裹 children
-                android.widget.LinearLayout cardL = new android.widget.LinearLayout(context);
-                cardL.setOrientation(LinearLayout.VERTICAL);
-                android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-                gd.setColor(ComponentColors.background(context));
-                gd.setCornerRadius(dp(10, density));
-                gd.setStroke(dp(1, density), ComponentColors.border(context));
-                cardL.setBackground(gd);
-                cardL.setPadding(dp(10, density), dp(8, density), dp(10, density), dp(8, density));
-                // UI-06 style 对象：padding/radius/background 覆盖默认（radius/background 已有默认，style 提供时覆盖）
+                // 卡片容器：框架标准卡（MaterialCardView），可选标题，包裹 children。
+                // children 需要 LinearLayout 的 LayoutParams（addChildren 口径），所以卡内套一层
+                // 纵向 LinearLayout；样式（背景/圆角/描边）落在卡片本体上，padding 落在卡片上。
+                MaterialCardView cardL = CanvasControls.card(context);
+                // UI-06 style 对象：padding/radius/background 覆盖默认（applyContainerStyle 对
+                // MaterialCardView 走 cardBackgroundColor/cardCornerRadius/stroke，不替换背景 drawable）
                 applyContainerStyle(cardL, node, density);
+                if (!node.has("padding")) {
+                    // MaterialCardView 的内容内边距要用 setContentPadding：setPadding 只改卡片自身
+                    // 的绘制区，内部 FrameLayout 子 view 仍贴边（真机实测：卡标题压在描边上）。
+                    cardL.setContentPadding(Tokens.spaceLg(context), Tokens.spaceMd(context),
+                            Tokens.spaceLg(context), Tokens.spaceMd(context));
+                }
+                LinearLayout cardColumn = new LinearLayout(context);
+                cardColumn.setOrientation(LinearLayout.VERTICAL);
                 String cTitle = interpolate(node.optString("title", ""), props);
                 if (!cTitle.isEmpty()) {
                     TextView ctv = new TextView(context);
                     ctv.setText(cTitle);
-                    ctv.setTextSize(15);
-                    ctv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                    ctv.setTextColor(ComponentColors.textPrimary(context));
+                    Tokens.applyText(ctv, Tokens.TEXT_BODY_LG, Tokens.Weight.SEMIBOLD,
+                            ComponentColors.textPrimary(context));
                     ctv.setPadding(0, 0, 0, dp(6, density));
-                    cardL.addView(ctv);
+                    cardColumn.addView(ctv);
                 }
-                addChildren(context, cardL, node, props, viewRefs, depth, defines);
+                addChildren(context, cardColumn, node, props, viewRefs, depth, defines);
+                cardL.addView(cardColumn, new android.widget.FrameLayout.LayoutParams(
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.FrameLayout.LayoutParams.WRAP_CONTENT));
                 return cardL;
             }
             case "wrap": {
@@ -1101,244 +1114,126 @@ public class NativeLayoutRenderer {
                 if (!ikey.isEmpty()) viewRefs.put(ikey, iTv);
                 return iTv;
             }
-            case "input": {
-                EditText et = new EditText(context);
-
-                setupInputView(et);                et.setHint(interpolate(node.optString("hint", "请输入"), props));
-                String value = node.has("value") ? interpolate(node.optString("value", ""), props)
-                        : (props != null ? props.optString(node.optString("key", ""), "") : "");
-                if (!value.isEmpty()) et.setText(value);
-                et.setSingleLine(true);
-                et.setTextSize(14);
-                String key = node.optString("key", "");
-                if (!key.isEmpty()) viewRefs.put(key, et);
-                return attachLabel(context, node, props, et, density);
-            }
-            case "number": {
-                EditText et = new EditText(context);
-
-                setupInputView(et);                et.setHint(interpolate(node.optString("hint", "请输入数字"), props));
-                String value = node.has("value") ? interpolate(node.optString("value", ""), props)
-                        : (props != null ? props.optString(node.optString("key", ""), "") : "");
-                if (!value.isEmpty()) et.setText(value);
-                et.setSingleLine(true);
-                et.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
-                        | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
-                et.setTextSize(14);
-                String key = node.optString("key", "");
-                if (!key.isEmpty()) viewRefs.put(key, et);
-                return attachLabel(context, node, props, et, density);
-            }
-            case "password": {
-                EditText et = new EditText(context);
-
-                setupInputView(et);                et.setHint(interpolate(node.optString("hint", "请输入密码"), props));
-                String value = node.has("value") ? interpolate(node.optString("value", ""), props)
-                        : (props != null ? props.optString(node.optString("key", ""), "") : "");
-                if (!value.isEmpty()) et.setText(value);
-                et.setSingleLine(true);
-                et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                        | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-                et.setTextSize(14);
-                String key = node.optString("key", "");
-                if (!key.isEmpty()) viewRefs.put(key, et);
-                return attachLabel(context, node, props, et, density);
-            }
-            case "multiline": {
-                EditText et = new EditText(context);
-
-                setupInputView(et);                et.setHint(interpolate(node.optString("hint", "请输入内容"), props));
-                String value = node.has("value") ? interpolate(node.optString("value", ""), props)
-                        : (props != null ? props.optString(node.optString("key", ""), "") : "");
-                if (!value.isEmpty()) et.setText(value);
-                et.setSingleLine(false);
-                et.setMinLines(2);
-                et.setMaxLines(6);
-                et.setGravity(Gravity.TOP | Gravity.START);
-                et.setTextSize(14);
-                String key = node.optString("key", "");
-                if (!key.isEmpty()) viewRefs.put(key, et);
-                return attachLabel(context, node, props, et, density);
-            }
+            case "input":
+                return buildTextInput(context, node, props, viewRefs, "请输入", 0, false, false);
+            case "number":
+                return buildTextInput(context, node, props, viewRefs, "请输入数字",
+                        android.text.InputType.TYPE_CLASS_NUMBER
+                                | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL, false, false);
+            case "password":
+                return buildTextInput(context, node, props, viewRefs, "请输入密码",
+                        android.text.InputType.TYPE_CLASS_TEXT
+                                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD, false, true);
+            case "multiline":
+                return buildTextInput(context, node, props, viewRefs, "请输入内容", 0, true, false);
             case "otp": {
-                EditText et = new EditText(context);
-
-                setupInputView(et);                int len = Math.max(1, Math.min(12, node.optInt("length", 6)));
-                et.setHint("请输入" + len + "位验证码");
-                String value = node.has("value") ? interpolate(node.optString("value", ""), props)
-                        : (props != null ? props.optString(node.optString("key", ""), "") : "");
-                if (!value.isEmpty()) et.setText(value);
-                et.setSingleLine(true);
-                et.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-                et.setTextSize(14);
-                String key = node.optString("key", "");
-                if (!key.isEmpty()) viewRefs.put(key, et);
-                return attachLabel(context, node, props, et, density);
+                int len = Math.max(1, Math.min(12, node.optInt("length", 6)));
+                TextInputLayout otpTil = buildTextInput(context, node, props, viewRefs,
+                        "请输入" + len + "位验证码", android.text.InputType.TYPE_CLASS_NUMBER, false, false);
+                EditText otpEt = CanvasControls.editOf(otpTil);
+                if (otpEt != null) {
+                    otpEt.setFilters(new android.text.InputFilter[]{
+                            new android.text.InputFilter.LengthFilter(len)});
+                }
+                return otpTil;
             }
-            case "email": {
-                EditText et = new EditText(context);
-
-                setupInputView(et);                et.setHint(interpolate(node.optString("hint", "请输入邮箱"), props));
-                String value = node.has("value") ? interpolate(node.optString("value", ""), props)
-                        : (props != null ? props.optString(node.optString("key", ""), "") : "");
-                if (!value.isEmpty()) et.setText(value);
-                et.setSingleLine(true);
-                et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                        | android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
-                et.setTextSize(14);
-                String key = node.optString("key", "");
-                if (!key.isEmpty()) viewRefs.put(key, et);
-                return attachLabel(context, node, props, et, density);
-            }
-            case "tel": {
-                EditText et = new EditText(context);
-
-                setupInputView(et);                et.setHint(interpolate(node.optString("hint", "请输入电话"), props));
-                String value = node.has("value") ? interpolate(node.optString("value", ""), props)
-                        : (props != null ? props.optString(node.optString("key", ""), "") : "");
-                if (!value.isEmpty()) et.setText(value);
-                et.setSingleLine(true);
-                et.setInputType(android.text.InputType.TYPE_CLASS_PHONE);
-                et.setTextSize(14);
-                String key = node.optString("key", "");
-                if (!key.isEmpty()) viewRefs.put(key, et);
-                return attachLabel(context, node, props, et, density);
-            }
-            case "url": {
-                EditText et = new EditText(context);
-
-                setupInputView(et);                et.setHint(interpolate(node.optString("hint", "请输入网址"), props));
-                String value = node.has("value") ? interpolate(node.optString("value", ""), props)
-                        : (props != null ? props.optString(node.optString("key", ""), "") : "");
-                if (!value.isEmpty()) et.setText(value);
-                et.setSingleLine(true);
-                et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                        | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-                et.setTextSize(14);
-                String key = node.optString("key", "");
-                if (!key.isEmpty()) viewRefs.put(key, et);
-                return attachLabel(context, node, props, et, density);
-            }
+            case "email":
+                return buildTextInput(context, node, props, viewRefs, "请输入邮箱",
+                        android.text.InputType.TYPE_CLASS_TEXT
+                                | android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, false, false);
+            case "tel":
+                return buildTextInput(context, node, props, viewRefs, "请输入电话",
+                        android.text.InputType.TYPE_CLASS_PHONE, false, false);
+            case "url":
+                return buildTextInput(context, node, props, viewRefs, "请输入网址",
+                        android.text.InputType.TYPE_CLASS_TEXT
+                                | android.text.InputType.TYPE_TEXT_VARIATION_URI, false, false);
             case "search": {
-                EditText et = new EditText(context);
-
-                setupInputView(et);                et.setHint(interpolate(node.optString("hint", "搜索"), props));
-                String value = node.has("value") ? interpolate(node.optString("value", ""), props)
-                        : (props != null ? props.optString(node.optString("key", ""), "") : "");
-                if (!value.isEmpty()) et.setText(value);
-                et.setSingleLine(true);
-                et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                        | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-                et.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
-                et.setTextSize(14);
-                String key = node.optString("key", "");
-                if (!key.isEmpty()) viewRefs.put(key, et);
-                return attachLabel(context, node, props, et, density);
+                TextInputLayout searchTil = buildTextInput(context, node, props, viewRefs, "搜索",
+                        android.text.InputType.TYPE_CLASS_TEXT
+                                | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS, false, false);
+                EditText searchEt = CanvasControls.editOf(searchTil);
+                if (searchEt != null) {
+                    searchEt.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+                }
+                return searchTil;
             }
             case "search_bar": {
-                // 搜索条：圆角背景 + 🔍 图标 + 输入框（点击/回车触发 action）
-                LinearLayout sbWrap = new LinearLayout(context);
-                sbWrap.setOrientation(LinearLayout.HORIZONTAL);
-                sbWrap.setGravity(Gravity.CENTER_VERTICAL);
-                android.graphics.drawable.GradientDrawable sbBg = new android.graphics.drawable.GradientDrawable();
-                sbBg.setColor(ComponentColors.fieldBg(context));
-                sbBg.setCornerRadius(dp(20, density));
-                sbWrap.setBackground(sbBg);
-                sbWrap.setPadding(dp(10, density), dp(4, density), dp(10, density), dp(4, density));
-                TextView sbIcon = new TextView(context);
-                sbIcon.setText("🔍");
-                sbIcon.setTextSize(14);
-                sbIcon.setPadding(0, 0, dp(6, density), 0);
-                sbWrap.addView(sbIcon);
-                EditText sbEt = new EditText(context);
-
-                setupInputView(sbEt);                sbEt.setHint(interpolate(node.optString("hint", "搜索"), props));
-                String sbVal = node.has("value") ? interpolate(node.optString("value", ""), props)
-                        : (props != null ? props.optString(node.optString("key", ""), "") : "");
-                if (!sbVal.isEmpty()) sbEt.setText(sbVal);
-                sbEt.setSingleLine(true);
-                sbEt.setBackground(null);
-                sbEt.setTextSize(14);
-                sbEt.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
-                String sbKey = node.optString("key", "");
-                if (!sbKey.isEmpty()) viewRefs.put(sbKey, sbEt);
-                sbWrap.addView(sbEt, new LinearLayout.LayoutParams(0,
-                        LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                return sbWrap;
+                // 搜索条：M2 outlined 输入框 + 前置搜索图标（点击/回车触发 action）
+                TextInputLayout sbTil = CanvasControls.searchBar(context,
+                        interpolate(node.optString("hint", "搜索"), props), "");
+                EditText sbEt = CanvasControls.editOf(sbTil);
+                if (sbEt != null) {
+                    String sbVal = node.has("value") ? interpolate(node.optString("value", ""), props)
+                            : (props != null ? props.optString(node.optString("key", ""), "") : "");
+                    if (!sbVal.isEmpty()) sbEt.setText(sbVal);
+                    setupInputView(sbEt);
+                    String sbKey = node.optString("key", "");
+                    if (!sbKey.isEmpty()) viewRefs.put(sbKey, sbEt);
+                }
+                return sbTil;
             }
             case "tag_input": {
-                // 标签输入：已有标签 chips + 输入框（回车/按钮添加），key 收集标签数组
+                // 标签输入：M2 Chip 列表 + M2 输入框（回车添加 / 点 × 删除），key 收集标签数组
                 LinearLayout tiWrap = new LinearLayout(context);
                 tiWrap.setOrientation(LinearLayout.VERTICAL);
-                final LinearLayout tiChips = new LinearLayout(context);
-                tiChips.setOrientation(LinearLayout.HORIZONTAL);
+                final com.google.android.material.chip.ChipGroup tiChips =
+                        CanvasControls.chipGroup(context, false);
                 final java.util.List<String> tiTags = new java.util.ArrayList<>();
                 JSONArray initTags = node.optJSONArray("tags");
                 if (initTags == null) initTags = node.optJSONArray("value");
                 if (initTags == null) initTags = node.optJSONArray("default");
-                final java.util.List<String> tiInit = new java.util.ArrayList<>();
                 if (initTags != null) {
                     for (int i = 0; i < initTags.length(); i++) {
                         String t = String.valueOf(initTags.opt(i));
-                        if (!t.trim().isEmpty()) tiInit.add(t.trim());
+                        if (!t.trim().isEmpty()) tiTags.add(t.trim());
                     }
                 }
-                tiTags.addAll(tiInit);
                 final Runnable[] renderChips = new Runnable[1];
                 renderChips[0] = () -> {
                     tiChips.removeAllViews();
                     for (int i = 0; i < tiTags.size(); i++) {
                         final int idx = i;
-                        TextView chip = new TextView(context);
-                        chip.setText(tiTags.get(i));
-                        chip.setTextSize(12);
-                        chip.setPadding(dp(10, density), dp(3, density), dp(10, density), dp(3, density));
-                        android.graphics.drawable.GradientDrawable chipBg = new android.graphics.drawable.GradientDrawable();
-                        chipBg.setColor(ComponentColors.accentOverlay(context));
-                        chipBg.setCornerRadius(dp(12, density));
-                        chip.setBackground(chipBg);
-                        chip.setTextColor(ComponentColors.accent(context));
-                        chip.setOnClickListener(v -> {
+                        final com.google.android.material.chip.Chip chip =
+                                CanvasControls.chip(context, tiTags.get(i), false, false);
+                        chip.setCloseIconVisible(true);
+                        chip.setOnCloseIconClickListener(v -> {
                             tiTags.remove(idx);
                             renderChips[0].run();
                         });
-                        LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                        chipLp.setMarginEnd(dp(6, density));
-                        chipLp.bottomMargin = dp(4, density);
-                        tiChips.addView(chip, chipLp);
+                        tiChips.addView(chip);
                     }
                 };
                 renderChips[0].run();
                 tiWrap.addView(tiChips);
-                EditText tiInput = new EditText(context);
-
-                setupInputView(tiInput);                tiInput.setHint(interpolate(node.optString("hint", "输入后回车添加"), props));
-                tiInput.setSingleLine(true);
-                tiInput.setTextSize(13);
-                tiInput.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
-                tiInput.setOnEditorActionListener((v, actionId, event) -> {
-                    if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE
-                            || (event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER)) {
-                        String t = tiInput.getText().toString().trim();
-                        if (!t.isEmpty()) {
-                            tiTags.add(t);
-                            tiInput.setText("");
-                            renderChips[0].run();
+                TextInputLayout tiTil = buildTextInput(context, node, props, null,
+                        "输入后回车添加", 0, false, false);
+                EditText tiInput = CanvasControls.editOf(tiTil);
+                if (tiInput != null) {
+                    tiInput.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
+                    tiInput.setOnEditorActionListener((v, actionId, event) -> {
+                        if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+                                || (event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER)) {
+                            String t = tiInput.getText().toString().trim();
+                            if (!t.isEmpty()) {
+                                tiTags.add(t);
+                                tiInput.setText("");
+                                renderChips[0].run();
+                            }
+                            return true;
                         }
-                        return true;
-                    }
-                    return false;
-                });
-                tiWrap.addView(tiInput);
+                        return false;
+                    });
+                }
+                tiWrap.addView(tiTil);
                 String tiKey = node.optString("key", "");
                 if (!tiKey.isEmpty()) viewRefs.put(tiKey, new TagInputRef(tiTags));
-                return attachLabel(context, node, props, tiWrap, density);
+                return tiWrap;
             }
             case "checkbox": {
-                android.widget.CheckBox cb = new android.widget.CheckBox(context);
-                cb.setText(interpolate(node.optString("text", ""), props));
-                cb.setChecked(node.optBoolean("checked", false));
+                com.google.android.material.checkbox.MaterialCheckBox cb =
+                        CanvasControls.checkBox(context, interpolate(node.optString("text", ""), props),
+                                node.optBoolean("checked", false));
                 String key = node.optString("key", "");
                 if (!key.isEmpty()) viewRefs.put(key, cb);
 return attachLabel(context, node, props, cb, density);
@@ -1361,9 +1256,8 @@ return attachLabel(context, node, props, cb, density);
                         String label = o instanceof JSONObject ? ((JSONObject) o).optString("label",
                                 String.valueOf(((JSONObject) o).opt("value"))) : String.valueOf(o);
                         final String val = o instanceof JSONObject ? ((JSONObject) o).optString("value", label) : label;
-                        final android.widget.CheckBox cb = new android.widget.CheckBox(context);
-                        cb.setText(label);
-                        cb.setChecked(cgSel.contains(val));
+                        final android.widget.CheckBox cb =
+                                CanvasControls.checkBox(context, label, cgSel.contains(val));
                         cb.setOnCheckedChangeListener((buttonView, isChecked) -> {
                             if (isChecked) {
                                 if (!cgSel.contains(val)) cgSel.add(val);
@@ -1387,8 +1281,7 @@ return attachLabel(context, node, props, cgWrap, density);
                 if (opts != null) {
                     for (int i = 0; i < opts.length(); i++) {
                         String label = String.valueOf(opts.opt(i));
-                        android.widget.RadioButton rb = new android.widget.RadioButton(context);
-                        rb.setText(label);
+                        android.widget.RadioButton rb = CanvasControls.radioButton(context, label);
                         rb.setId(android.view.View.generateViewId());
                         rg.addView(rb);
                         if (label.equals(selected)) rg.check(rb.getId());
@@ -1412,8 +1305,7 @@ return attachLabel(context, node, props, rg, density);
                         String label = o instanceof JSONObject ? ((JSONObject) o).optString("label",
                                 String.valueOf(((JSONObject) o).opt("value"))) : String.valueOf(o);
                         final String val = o instanceof JSONObject ? ((JSONObject) o).optString("value", label) : label;
-                        android.widget.RadioButton rb = new android.widget.RadioButton(context);
-                        rb.setText(label);
+                        android.widget.RadioButton rb = CanvasControls.radioButton(context, label);
                         rb.setId(android.view.View.generateViewId());
                         idToVal.put(rb.getId(), val);
                         rg.addView(rb);
@@ -1425,150 +1317,88 @@ return attachLabel(context, node, props, rg, density);
 return attachLabel(context, node, props, rg, density);
             }
             case "slider": {
-                android.widget.SeekBar sb = new android.widget.SeekBar(context);
-                int max = node.optInt("max", 100);
+                // M2 Slider（替代 SeekBar）：轨道/滑块/拖动标签都是 Material 的
                 int min = node.optInt("min", 0);
-                sb.setMax(max - min);
-                int val = node.optInt("value", node.optInt("default", 0));
-                sb.setProgress(Math.max(0, Math.min(max - min, val - min)));
-                // 记录 min：collectValues 收集时返回 progress+min（否则 min>0 时值偏移）
-                sb.setTag(min);
-                final int fMin = min;
+                int max = node.optInt("max", 100);
+                int step = Math.max(1, node.optInt("step", 1));
+                if (max <= min) max = min + 100;
+                // Slider 要求步长整除区间，否则 setStepSize 直接抛异常
+                max = min + ((max - min) / step) * step;
+                int val = node.optInt("value", node.optInt("default", min));
+                val = min + Math.round((float) (val - min) / step) * step;
+                val = Math.max(min, Math.min(max, val));
+                Slider slider = new Slider(context);
+                slider.setValueFrom(min);
+                slider.setValueTo(max);
+                slider.setStepSize(step);
+                slider.setValue(val);
                 String key = node.optString("key", "");
-                if (!key.isEmpty()) viewRefs.put(key, sb);
+                if (!key.isEmpty()) viewRefs.put(key, slider);
                 if (node.optBoolean("show_value", false)) {
                     final TextView valTv = new TextView(context);
-                    valTv.setTextSize(12);
+                    Tokens.applyText(valTv, Tokens.TEXT_FOOTNOTE, Tokens.Weight.REGULAR,
+                            ComponentColors.textSecondary(context));
                     valTv.setText(String.valueOf(val));
                     valTv.setPadding(0, dp(2, density), 0, 0);
-                    sb.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-                        @Override public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
-                            valTv.setText(String.valueOf(progress + fMin));
-                        }
-                        @Override public void onStartTrackingTouch(android.widget.SeekBar seekBar) {}
-                        @Override public void onStopTrackingTouch(android.widget.SeekBar seekBar) {}
-                    });
+                    slider.addOnChangeListener((s, v, fromUser) ->
+                            valTv.setText(String.valueOf(Math.round(v))));
                     LinearLayout wrap = new LinearLayout(context);
                     wrap.setOrientation(LinearLayout.VERTICAL);
-                    wrap.addView(sb);
+                    wrap.addView(slider);
                     wrap.addView(valTv);
                     return attachLabel(context, node, props, wrap, density);
                 }
-                return attachLabel(context, node, props, sb, density);
+                return attachLabel(context, node, props, slider, density);
             }
             case "date": {
-                final TextView tv = new TextView(context);
-                final String defVal = node.has("value") ? node.optString("value", "")
-                        : node.optString("default", "");
-                final String[] cur = {defVal};
-                tv.setText(cur[0].isEmpty() ? "点击选择日期" : cur[0]);
-                tv.setTextSize(14);
-                tv.setPadding(dp(8, density), dp(6, density), dp(8, density), dp(6, density));
-                tv.setBackground(fieldBackground(context, density));
-                final String key = node.optString("key", "");
-                tv.setOnClickListener(v -> {
-                    java.util.Calendar cal = java.util.Calendar.getInstance();
-                    try {
-                        if (!cur[0].isEmpty()) {
-                            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                                    "yyyy-MM-dd", java.util.Locale.getDefault());
-                            java.util.Date d = sdf.parse(cur[0]);
-                            if (d != null) cal.setTime(d);
-                        }
-                    } catch (Exception ignored) {
-                    }
-                    new android.app.DatePickerDialog(context,
-                            (view, year, month, dayOfMonth) -> {
-                                cur[0] = String.format(java.util.Locale.getDefault(),
-                                        "%04d-%02d-%02d", year, month + 1, dayOfMonth);
-                                tv.setText(cur[0]);
-                            },
-                            cal.get(java.util.Calendar.YEAR),
-                            cal.get(java.util.Calendar.MONTH),
-                            cal.get(java.util.Calendar.DAY_OF_MONTH)).show();
+                final String[] cur = {pickerInitial(node, props)};
+                final TextInputLayout dateTil = CanvasControls.pickerField(context,
+                        pickerLabel(node, props, "点击选择日期"), cur[0]);
+                final EditText dateEt = CanvasControls.editOf(dateTil);
+                Runnable openDate = () -> showDatePicker(context, cur[0], picked -> {
+                    cur[0] = picked;
+                    if (dateEt != null) dateEt.setText(picked);
                 });
+                dateTil.setOnClickListener(v -> openDate.run());
+                dateTil.setEndIconOnClickListener(v -> openDate.run());
+                if (dateEt != null) dateEt.setOnClickListener(v -> openDate.run());
+                String key = node.optString("key", "");
                 if (!key.isEmpty()) viewRefs.put(key, new DateRef(cur)); // 未选择时收集空串（不把占位文本当值）
-                return attachLabel(context, node, props, tv, density);
+                return dateTil;
             }
             case "time": {
-                final TextView tv = new TextView(context);
-                final String defVal = node.has("value") ? node.optString("value", "")
-                        : node.optString("default", "");
-                final String[] cur = {defVal};
-                tv.setText(cur[0].isEmpty() ? "点击选择时间" : cur[0]);
-                tv.setTextSize(14);
-                tv.setPadding(dp(8, density), dp(6, density), dp(8, density), dp(6, density));
-                tv.setBackground(fieldBackground(context, density));
-                final String key = node.optString("key", "");
-                tv.setOnClickListener(v -> {
-                    java.util.Calendar cal = java.util.Calendar.getInstance();
-                    try {
-                        if (!cur[0].isEmpty()) {
-                            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                                    "HH:mm", java.util.Locale.getDefault());
-                            java.util.Date d = sdf.parse(cur[0]);
-                            if (d != null) cal.setTime(d);
-                        }
-                    } catch (Exception ignored) {
-                    }
-                    new android.app.TimePickerDialog(context,
-                            (view, hourOfDay, minute) -> {
-                                cur[0] = String.format(java.util.Locale.getDefault(),
-                                        "%02d:%02d", hourOfDay, minute);
-                                tv.setText(cur[0]);
-                            },
-                            cal.get(java.util.Calendar.HOUR_OF_DAY),
-                            cal.get(java.util.Calendar.MINUTE),
-                            true).show();
+                final String[] cur = {pickerInitial(node, props)};
+                final TextInputLayout timeTil = CanvasControls.pickerField(context,
+                        pickerLabel(node, props, "点击选择时间"), cur[0]);
+                final EditText timeEt = CanvasControls.editOf(timeTil);
+                Runnable openTime = () -> showTimePicker(context, cur[0], picked -> {
+                    cur[0] = picked;
+                    if (timeEt != null) timeEt.setText(picked);
                 });
+                timeTil.setOnClickListener(v -> openTime.run());
+                timeTil.setEndIconOnClickListener(v -> openTime.run());
+                if (timeEt != null) timeEt.setOnClickListener(v -> openTime.run());
+                String key = node.optString("key", "");
                 if (!key.isEmpty()) viewRefs.put(key, new DateRef(cur)); // 未选择时收集空串
-                return attachLabel(context, node, props, tv, density);
+                return timeTil;
             }
             case "datetime": {
                 // 日期+时间选择（依次弹出日期与时间选择器，value 格式 yyyy-MM-dd HH:mm）
-                final TextView tv = new TextView(context);
-                final String defVal = node.has("value") ? node.optString("value", "")
-                        : node.optString("default", "");
-                final String[] cur = {defVal};
-                tv.setText(cur[0].isEmpty() ? "点击选择日期时间" : cur[0]);
-                tv.setTextSize(14);
-                tv.setPadding(dp(8, density), dp(6, density), dp(8, density), dp(6, density));
-                tv.setBackground(fieldBackground(context, density));
-                final String key = node.optString("key", "");
-                tv.setOnClickListener(v -> {
-                    java.util.Calendar cal = java.util.Calendar.getInstance();
-                    try {
-                        if (!cur[0].isEmpty()) {
-                            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                                    "yyyy-MM-dd HH:mm", java.util.Locale.getDefault());
-                            java.util.Date d = sdf.parse(cur[0]);
-                            if (d != null) cal.setTime(d);
-                        }
-                    } catch (Exception ignored) {
-                    }
-                    final java.util.Calendar fcal = cal;
-                    new android.app.DatePickerDialog(context,
-                            (view, year, month, dayOfMonth) -> {
-                                fcal.set(year, month, dayOfMonth);
-                                new android.app.TimePickerDialog(context,
-                                        (view2, hourOfDay, minute) -> {
-                                            fcal.set(java.util.Calendar.HOUR_OF_DAY, hourOfDay);
-                                            fcal.set(java.util.Calendar.MINUTE, minute);
-                                            cur[0] = new java.text.SimpleDateFormat(
-                                                    "yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-                                                    .format(fcal.getTime());
-                                            tv.setText(cur[0]);
-                                        },
-                                        fcal.get(java.util.Calendar.HOUR_OF_DAY),
-                                        fcal.get(java.util.Calendar.MINUTE),
-                                        true).show();
-                            },
-                            fcal.get(java.util.Calendar.YEAR),
-                            fcal.get(java.util.Calendar.MONTH),
-                            fcal.get(java.util.Calendar.DAY_OF_MONTH)).show();
-                });
+                final String[] cur = {pickerInitial(node, props)};
+                final TextInputLayout dtTil = CanvasControls.pickerField(context,
+                        pickerLabel(node, props, "点击选择日期时间"), cur[0]);
+                final EditText dtEt = CanvasControls.editOf(dtTil);
+                Runnable openDt = () -> showDatePicker(context, cur[0], datePicked ->
+                        showTimePicker(context, cur[0], timePicked -> {
+                            cur[0] = datePicked + " " + timePicked;
+                            if (dtEt != null) dtEt.setText(cur[0]);
+                        }));
+                dtTil.setOnClickListener(v -> openDt.run());
+                dtTil.setEndIconOnClickListener(v -> openDt.run());
+                if (dtEt != null) dtEt.setOnClickListener(v -> openDt.run());
+                String key = node.optString("key", "");
                 if (!key.isEmpty()) viewRefs.put(key, new DateRef(cur));
-                return attachLabel(context, node, props, tv, density);
+                return dtTil;
             }
             case "color": {
                 final String[] palette = {"#EF4444", "#F97316", "#F59E0B", "#84CC16",
@@ -1628,10 +1458,9 @@ return attachLabel(context, node, props, rg, density);
 return attachLabel(context, node, props, row, density);
             }
             case "button": {
-                Button btn = new Button(context);
-                btn.setText(interpolate(node.optString("text", "确定"), props));
-                btn.setTextSize(13);
-                btn.setAllCaps(false);
+                // M2 MaterialButton（框架标准按钮样式）：涟漪/禁用态/触摸目标/主题色都跟着框架
+                com.google.android.material.button.MaterialButton btn =
+                        CanvasControls.button(context, interpolate(node.optString("text", "确定"), props));
                 String bind = node.optString("action", "");
                 if (node.has("tool")) {
                     try {
@@ -2687,104 +2516,77 @@ return attachLabel(context, node, props, row, density);
                 return spWrap2;
             }
             case "select": {
-                Spinner sp = new Spinner(context);
                 JSONArray opts = node.optJSONArray("options");
                 java.util.List<String> items = new java.util.ArrayList<>();
                 if (opts != null) {
                     for (int i = 0; i < opts.length(); i++) {
-                        items.add(String.valueOf(opts.opt(i)));
+                        Object o = opts.opt(i);
+                        items.add(o instanceof JSONObject ? ((JSONObject) o).optString("label",
+                                String.valueOf(((JSONObject) o).opt("value"))) : String.valueOf(o));
                     }
                 }
                 if (items.isEmpty()) items.add("请选择");
-                android.widget.ArrayAdapter<String> ad = new android.widget.ArrayAdapter<>(
-                        context, android.R.layout.simple_spinner_item, items);
-                ad.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                sp.setAdapter(ad);
                 String sel = node.optString("value", "");
                 if (sel.isEmpty()) sel = node.optString("default", "");
                 String key = node.optString("key", "");
                 if (sel.isEmpty() && !key.isEmpty() && props != null) {
                     sel = props.optString(key, "");
                 }
-                if (!sel.isEmpty()) {
-                    int idx = items.indexOf(sel);
-                    if (idx >= 0) sp.setSelection(idx);
-                }
-                if (!key.isEmpty()) viewRefs.put(key, sp);
-                return attachLabel(context, node, props, sp, density);
+                // M2 exposed dropdown：outlined 输入框 + 下拉箭头，值仍按 EditText 口径收集
+                TextInputLayout selectTil = CanvasControls.dropdown(context,
+                        interpolate(node.optString("label", ""), props), items, sel);
+                EditText selectEt = CanvasControls.editOf(selectTil);
+                if (!key.isEmpty() && selectEt != null) viewRefs.put(key, selectEt);
+                return selectTil;
             }
             case "switch": {
-                android.widget.Switch sw = new android.widget.Switch(context);
-                sw.setChecked(node.optBoolean("checked", false));
-                String text = interpolate(node.optString("text", ""), props);
-                if (!text.isEmpty()) sw.setText(text);
+                SwitchMaterial sw = CanvasControls.switchView(context,
+                        interpolate(node.optString("text", ""), props), node.optBoolean("checked", false));
                 String key = node.optString("key", "");
                 if (!key.isEmpty()) viewRefs.put(key, sw);
-return attachLabel(context, node, props, sw, density);
+                return attachLabel(context, node, props, sw, density);
             }
             case "toggle": {
-                // 胶囊分段开关（segmented control）：options=[{label,value}] 或字符串数组，选中项高亮
-                LinearLayout tgWrap = new LinearLayout(context);
-                tgWrap.setOrientation(LinearLayout.HORIZONTAL);
-                android.graphics.drawable.GradientDrawable tgBg = new android.graphics.drawable.GradientDrawable();
-                tgBg.setColor(ComponentColors.fieldBg(context));
-                tgBg.setCornerRadius(dp(18, density));
-                tgWrap.setBackground(tgBg);
-                tgWrap.setPadding(dp(3, density), dp(3, density), dp(3, density), dp(3, density));
+                // 分段选择：M2 ChipGroup 单选（替代手绘胶囊），选中态由 Chip 状态色表达
                 JSONArray tgOpts = node.optJSONArray("options");
-                String tgSel = node.optString("value", node.optString("default", ""));
                 if (tgOpts == null || tgOpts.length() == 0) {
+                    tgOpts = new JSONArray();
                     try {
-                        tgOpts = new JSONArray().put("是").put("否");
+                        tgOpts.put("是").put("否");
                     } catch (Exception ignored) {
                     }
                 }
+                String tgSel = node.optString("value", node.optString("default", ""));
+                final com.google.android.material.chip.ChipGroup tgGroup =
+                        CanvasControls.chipGroup(context, true);
                 final String[] tgCur = {tgSel};
-                final java.util.List<TextView> tgBtns = new java.util.ArrayList<>();
+                int checkedId = 0;
                 for (int i = 0; i < tgOpts.length(); i++) {
                     Object o = tgOpts.opt(i);
                     String label = o instanceof JSONObject ? ((JSONObject) o).optString("label",
                             String.valueOf(((JSONObject) o).opt("value"))) : String.valueOf(o);
                     final String val = o instanceof JSONObject ? ((JSONObject) o).optString("value", label) : label;
-                    final TextView tgBtn = new TextView(context);
-                    tgBtn.setText(label);
-                    tgBtn.setTextSize(13);
-                    tgBtn.setGravity(Gravity.CENTER);
-                    tgBtn.setPadding(dp(14, density), dp(6, density), dp(14, density), dp(6, density));
-                    LinearLayout.LayoutParams tgLp = new LinearLayout.LayoutParams(0,
-                            LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                    tgBtn.setLayoutParams(tgLp);
-                    final boolean selected = val.equals(tgSel);
-                    tgBtn.setTextColor(selected ? ThemeColors.get(R.color.hc_ffffffff) : ComponentColors.textSecondary(context));
-                    if (selected) {
-                        android.graphics.drawable.GradientDrawable selBg = new android.graphics.drawable.GradientDrawable();
-                        selBg.setColor(ComponentColors.accent(context));
-                        selBg.setCornerRadius(dp(15, density));
-                        tgBtn.setBackground(selBg);
-                    }
-                    tgBtn.setOnClickListener(v -> {
-                        tgCur[0] = val;
-                        for (int k = 0; k < tgBtns.size(); k++) {
-                            TextView b = tgBtns.get(k);
-                            b.setTextColor(ComponentColors.textSecondary(context));
-                            b.setBackground(null);
-                        }
-                        tgBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
-                        android.graphics.drawable.GradientDrawable selBg2 = new android.graphics.drawable.GradientDrawable();
-                        selBg2.setColor(ComponentColors.accent(context));
-                        selBg2.setCornerRadius(dp(15, density));
-                        tgBtn.setBackground(selBg2);
-                    });
-                    tgBtns.add(tgBtn);
-                    tgWrap.addView(tgBtn);
+                    com.google.android.material.chip.Chip chip =
+                            CanvasControls.chip(context, label, true, val.equals(tgSel));
+                    chip.setId(android.view.View.generateViewId());
+                    chip.setTag(val);
+                    tgGroup.addView(chip);
+                    if (val.equals(tgSel)) checkedId = chip.getId();
                 }
+                if (checkedId != 0) tgGroup.check(checkedId);
+                tgGroup.setOnCheckedStateChangeListener((group, checkedIds) -> {
+                    if (checkedIds.isEmpty()) return;
+                    android.view.View chip = group.findViewById(checkedIds.get(0));
+                    if (chip != null && chip.getTag() != null) {
+                        tgCur[0] = String.valueOf(chip.getTag());
+                    }
+                });
                 String tgKey = node.optString("key", "");
                 if (!tgKey.isEmpty()) viewRefs.put(tgKey, new ToggleRef(tgCur));
-                return tgWrap;
+                return attachLabel(context, node, props, tgGroup, density);
             }
             case "dropdown": {
-                // 下拉选择（Spinner，同 select 但语义化命名；支持 key/options/value/default）
-                Spinner ddSp = new Spinner(context);
+                // 下拉选择（同 select，语义化命名；支持 key/options/value/default）
                 JSONArray ddOpts = node.optJSONArray("options");
                 java.util.List<String> ddItems = new java.util.ArrayList<>();
                 if (ddOpts != null) {
@@ -2795,22 +2597,17 @@ return attachLabel(context, node, props, sw, density);
                     }
                 }
                 if (ddItems.isEmpty()) ddItems.add("请选择");
-                android.widget.ArrayAdapter<String> ddAd = new android.widget.ArrayAdapter<>(
-                        context, android.R.layout.simple_spinner_item, ddItems);
-                ddAd.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                ddSp.setAdapter(ddAd);
                 String ddSel = node.optString("value", "");
                 if (ddSel.isEmpty()) ddSel = node.optString("default", "");
-                if (!ddSel.isEmpty()) {
-                    int idx = ddItems.indexOf(ddSel);
-                    if (idx >= 0) ddSp.setSelection(idx);
-                }
+                TextInputLayout ddTil = CanvasControls.dropdown(context,
+                        interpolate(node.optString("label", ""), props), ddItems, ddSel);
+                EditText ddEt = CanvasControls.editOf(ddTil);
                 String ddKey = node.optString("key", "");
-                if (!ddKey.isEmpty()) viewRefs.put(ddKey, ddSp);
-return attachLabel(context, node, props, ddSp, density);
+                if (!ddKey.isEmpty() && ddEt != null) viewRefs.put(ddKey, ddEt);
+                return ddTil;
             }
             case "stepper": {
-                // 步进器：- 数值 +（key 收集数值，min/max/step 控制）
+                // 步进器：M2 描边按钮 − 数值 +（key 收集数值，min/max/step 控制）
                 LinearLayout stWrap = new LinearLayout(context);
                 stWrap.setOrientation(LinearLayout.HORIZONTAL);
                 stWrap.setGravity(Gravity.CENTER_VERTICAL);
@@ -2820,32 +2617,22 @@ return attachLabel(context, node, props, ddSp, density);
                 final int[] stVal = {node.optInt("value", node.optInt("default", stMin))};
                 if (stVal[0] < stMin) stVal[0] = stMin;
                 if (stVal[0] > stMax) stVal[0] = stMax;
-                TextView stMinus = new TextView(context);
-                stMinus.setText("−");
-                stMinus.setTextSize(18);
-                stMinus.setTextColor(ComponentColors.accent(context));
-                stMinus.setGravity(Gravity.CENTER);
-                android.graphics.drawable.GradientDrawable stBtnBg = new android.graphics.drawable.GradientDrawable();
-                stBtnBg.setColor(ComponentColors.fieldBg(context));
-                stBtnBg.setCornerRadius(dp(8, density));
-                stMinus.setBackground(stBtnBg);
-                LinearLayout.LayoutParams stBtnLp = new LinearLayout.LayoutParams(dp(34, density), dp(34, density));
-                stMinus.setLayoutParams(stBtnLp);
+                // secondaryButton 会打“画布自有交互”标记，宿主不会把它当提交按钮
+                com.google.android.material.button.MaterialButton stMinus =
+                        CanvasControls.secondaryButton(context, "−");
                 stWrap.addView(stMinus);
                 final TextView stNum = new TextView(context);
                 stNum.setText(String.valueOf(stVal[0]));
-                stNum.setTextSize(16);
+                Tokens.applyText(stNum, Tokens.TEXT_BODY_LG, Tokens.Weight.MEDIUM,
+                        ComponentColors.textPrimary(context));
                 stNum.setGravity(Gravity.CENTER);
-                stNum.setTextColor(ComponentColors.textPrimary(context));
-                stWrap.addView(stNum, new LinearLayout.LayoutParams(dp(50, density),
-                        LinearLayout.LayoutParams.WRAP_CONTENT));
-                TextView stPlus = new TextView(context);
-                stPlus.setText("+");
-                stPlus.setTextSize(18);
-                stPlus.setTextColor(ComponentColors.accent(context));
-                stPlus.setGravity(Gravity.CENTER);
-                stPlus.setBackground(stBtnBg);
-                stPlus.setLayoutParams(new LinearLayout.LayoutParams(dp(34, density), dp(34, density)));
+                LinearLayout.LayoutParams stNumLp = new LinearLayout.LayoutParams(
+                        dp(50, density), LinearLayout.LayoutParams.WRAP_CONTENT);
+                stNumLp.setMarginStart(dp(8, density));
+                stNumLp.setMarginEnd(dp(8, density));
+                stWrap.addView(stNum, stNumLp);
+                com.google.android.material.button.MaterialButton stPlus =
+                        CanvasControls.secondaryButton(context, "+");
                 stWrap.addView(stPlus);
                 stMinus.setOnClickListener(v -> {
                     if (stVal[0] - stStep >= stMin) {
@@ -2861,82 +2648,61 @@ return attachLabel(context, node, props, ddSp, density);
                 });
                 String stKey = node.optString("key", "");
                 if (!stKey.isEmpty()) viewRefs.put(stKey, new StepperRef(stVal));
-return attachLabel(context, node, props, stWrap, density);
+                return attachLabel(context, node, props, stWrap, density);
             }
             case "slider_range": {
-                // 双滑块范围（最小/最大）：基于两个 SeekBar 简化实现
+                // 双滑块范围：M2 RangeSlider（替代两个 SeekBar）
                 LinearLayout srWrap = new LinearLayout(context);
                 srWrap.setOrientation(LinearLayout.VERTICAL);
                 int srMin = node.optInt("min", 0);
                 int srMax = node.optInt("max", 100);
+                int srStep = Math.max(1, node.optInt("step", 1));
+                if (srMax <= srMin) srMax = srMin + 100;
+                srMax = srMin + ((srMax - srMin) / srStep) * srStep;
                 int srLow = Math.max(srMin, node.optInt("low", srMin));
                 int srHigh = Math.min(srMax, node.optInt("high", srMax));
-                android.widget.SeekBar srLowBar = new android.widget.SeekBar(context);
-                srLowBar.setMax(srMax - srMin);
-                srLowBar.setProgress(srLow - srMin);
-                srLowBar.setTag(srMin);
-                srWrap.addView(srLowBar);
-                android.widget.SeekBar srHighBar = new android.widget.SeekBar(context);
-                srHighBar.setMax(srMax - srMin);
-                srHighBar.setProgress(srHigh - srMin);
-                srHighBar.setTag(srMin);
-                srWrap.addView(srHighBar);
-                final TextView srLabel = new TextView(context);
-                srLabel.setText(srLow + " - " + srHigh);
-                srLabel.setTextSize(12);
-                srLabel.setTextColor(ComponentColors.textSecondary(context));
-                srWrap.addView(srLabel);
+                srLow = srMin + Math.round((float) (srLow - srMin) / srStep) * srStep;
+                srHigh = srMin + Math.round((float) (srHigh - srMin) / srStep) * srStep;
+                if (srLow > srHigh) {
+                    int tmp = srLow;
+                    srLow = srHigh;
+                    srHigh = tmp;
+                }
+                RangeSlider rangeSlider = new RangeSlider(context);
+                rangeSlider.setValueFrom(srMin);
+                rangeSlider.setValueTo(srMax);
+                rangeSlider.setStepSize(srStep);
+                rangeSlider.setValues((float) srLow, (float) srHigh);
+                srWrap.addView(rangeSlider);
                 final int[] srLowV = {srLow};
                 final int[] srHighV = {srHigh};
-                srLowBar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-                    @Override public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
-                        if (fromUser && progress <= srHighV[0] - srMin) {
-                            srLowV[0] = progress + srMin;
-                            srLabel.setText(srLowV[0] + " - " + srHighV[0]);
-                        }
+                final TextView srLabel = new TextView(context);
+                Tokens.applyText(srLabel, Tokens.TEXT_FOOTNOTE, Tokens.Weight.REGULAR,
+                        ComponentColors.textSecondary(context));
+                srLabel.setText(srLow + " - " + srHigh);
+                srWrap.addView(srLabel);
+                rangeSlider.addOnChangeListener((s, v, fromUser) -> {
+                    java.util.List<Float> vals = s.getValues();
+                    if (vals.size() >= 2) {
+                        srLowV[0] = Math.round(vals.get(0));
+                        srHighV[0] = Math.round(vals.get(1));
+                        srLabel.setText(srLowV[0] + " - " + srHighV[0]);
                     }
-                    @Override public void onStartTrackingTouch(android.widget.SeekBar seekBar) { }
-                    @Override public void onStopTrackingTouch(android.widget.SeekBar seekBar) { }
-                });
-                srHighBar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-                    @Override public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
-                        if (fromUser && progress >= srLowV[0] - srMin) {
-                            srHighV[0] = progress + srMin;
-                            srLabel.setText(srLowV[0] + " - " + srHighV[0]);
-                        }
-                    }
-                    @Override public void onStartTrackingTouch(android.widget.SeekBar seekBar) { }
-                    @Override public void onStopTrackingTouch(android.widget.SeekBar seekBar) { }
                 });
                 String srKey = node.optString("key", "");
                 if (!srKey.isEmpty()) viewRefs.put(srKey, new RangeRef(srLowV, srHighV));
-return attachLabel(context, node, props, srWrap, density);
+                return attachLabel(context, node, props, srWrap, density);
             }
             case "file": {
-                // 文件路径输入控件：label + 路径输入框（value 预填 / 用户手填），key 收集路径
-                LinearLayout fWrap = new LinearLayout(context);
-                fWrap.setOrientation(LinearLayout.HORIZONTAL);
-                fWrap.setGravity(Gravity.CENTER_VERTICAL);
-                String fLabel = interpolate(node.optString("label", "文件路径"), props);
-                TextView fLb = new TextView(context);
-                fLb.setText(fLabel + ":");
-                fLb.setTextSize(13);
-                fLb.setTextColor(ComponentColors.textSecondary(context));
-                fLb.setPadding(0, 0, dp(6, density), 0);
-                fWrap.addView(fLb);
-                EditText fEt = new EditText(context);
-
-                setupInputView(fEt);                String fValue = node.has("value") ? interpolate(node.optString("value", ""), props)
-                        : (props != null ? props.optString(node.optString("key", ""), "") : "");
-                if (!fValue.isEmpty()) fEt.setText(fValue);
-                fEt.setHint(node.optString("hint", "输入文件路径或URL"));
-                fEt.setSingleLine(true);
-                fEt.setTextSize(13);
-                fWrap.addView(fEt, new LinearLayout.LayoutParams(0,
-                        LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                String fkey = node.optString("key", "");
-                if (!fkey.isEmpty()) viewRefs.put(fkey, fEt);
-                return fWrap;
+                // 文件路径输入：M2 输入框（label 缺失时默认"文件路径"），key 收集路径
+                if (!node.has("label") && !node.has("hint")) {
+                    try {
+                        node.put("label", "文件路径");
+                    } catch (org.json.JSONException ignored) {
+                    }
+                }
+                return buildTextInput(context, node, props, viewRefs, "输入文件路径或URL",
+                        0, false, false);
             }
             case "qrcode": {
                 // 二维码（zxing）：content=内容, size=边长dp, color/bg_color
@@ -3663,6 +3429,18 @@ return attachLabel(context, node, props, srWrap, density);
                     if (borderWidth > 0) borderOk = true;
                 }
                 // 仅 radius（无 background/border）且控件已有背景（如 card 默认白底圆角）→ 跳过，保留原背景
+                // MaterialCardView 例外：它的"背景"是卡片自身形状，radius/border 必须走卡片 API，
+                // 直接 setBackground 会把卡片的形状/描边/圆角裁切全部破坏。
+                if (v instanceof MaterialCardView) {
+                    MaterialCardView card = (MaterialCardView) v;
+                    if (bgOk) card.setCardBackgroundColor(bgColor);
+                    if (hasRadius) card.setRadius(radiusDp);
+                    if (borderOk && borderWidth > 0) {
+                        card.setStrokeWidth(dp(borderWidth, density));
+                        card.setStrokeColor(borderColor);
+                    }
+                    return;
+                }
                 if (hasRadius && !bgOk && !borderOk && v.getBackground() != null) {
                     return;
                 }
@@ -3751,12 +3529,165 @@ return attachLabel(context, node, props, srWrap, density);
         wrap.setOrientation(LinearLayout.VERTICAL);
         TextView labelTv = new TextView(context);
         labelTv.setText(label);
-        labelTv.setTextSize(12);
-        labelTv.setTextColor(ComponentColors.textSecondary(context));
+        Tokens.applyText(labelTv, Tokens.TEXT_FOOTNOTE, Tokens.Weight.REGULAR,
+                ComponentColors.textSecondary(context));
         labelTv.setPadding(0, 0, 0, dp(3, density));
         wrap.addView(labelTv);
         wrap.addView(innerView);
         return wrap;
+    }
+
+    /**
+     * 画布文本输入的统一构建（2026-11-18）：M2 {@link TextInputLayout} + {@link EditText}。
+     *
+     * <p>与旧的裸 {@code new EditText} 相比：浮动标签、错误态、密码可见切换、主题描边都交给
+     * 框架；layout JSON 契约不变（label/hint/value/key 语义一致），{@code viewRefs} 仍登记
+     * {@link EditText}，所以 {@link #collectValues}/{@link #applyValues} 不受影响。</p>
+     */
+    private static TextInputLayout buildTextInput(Context context, JSONObject node, JSONObject props,
+                                                  Map<String, Object> viewRefs, String defaultHint,
+                                                  int inputType, boolean multiline,
+                                                  boolean passwordToggle) {
+        String label = interpolate(node.optString("label", ""), props);
+        String hint = interpolate(node.optString("hint", defaultHint), props);
+        String value = node.has("value") ? interpolate(node.optString("value", ""), props)
+                : (props != null ? props.optString(node.optString("key", ""), "") : "");
+        TextInputLayout til = CanvasControls.input(context, label, hint, value, inputType,
+                multiline, passwordToggle);
+        EditText et = CanvasControls.editOf(til);
+        if (et != null) {
+            setupInputView(et);
+            String key = node.optString("key", "");
+            if (!key.isEmpty() && viewRefs != null) {
+                viewRefs.put(key, et);
+            }
+        }
+        return til;
+    }
+
+    /** 日期/时间节点的初始值（value 优先，其次 default；支持 {占位符} 插值）。 */
+    private static String pickerInitial(JSONObject node, JSONObject props) {
+        String v = node.has("value") ? node.optString("value", "") : node.optString("default", "");
+        return interpolate(v, props);
+    }
+
+    /** 日期/时间节点的标签：有 label 用 label，否则用"点击选择…"占位。 */
+    private static String pickerLabel(JSONObject node, JSONObject props, String fallback) {
+        String label = interpolate(node.optString("label", ""), props);
+        return label.isEmpty() ? fallback : label;
+    }
+
+    /** 公历日 → MaterialDatePicker 需要的 UTC 日毫秒（该日 00:00 UTC）。 */
+    private static long utcDayMillis(int year, int month, int day) {
+        java.util.Calendar utc = java.util.Calendar.getInstance(
+                java.util.TimeZone.getTimeZone("UTC"));
+        utc.clear();
+        utc.set(year, month, day);
+        return utc.getTimeInMillis();
+    }
+
+    /** MaterialDatePicker 回传的 UTC 日毫秒 → yyyy-MM-dd。 */
+    private static String formatUtcDay(long millis) {
+        java.util.Calendar utc = java.util.Calendar.getInstance(
+                java.util.TimeZone.getTimeZone("UTC"));
+        utc.setTimeInMillis(millis);
+        return String.format(java.util.Locale.getDefault(), "%04d-%02d-%02d",
+                utc.get(java.util.Calendar.YEAR), utc.get(java.util.Calendar.MONTH) + 1,
+                utc.get(java.util.Calendar.DAY_OF_MONTH));
+    }
+
+    /**
+     * 日期选择：宿主是 {@link androidx.fragment.app.FragmentActivity} 且状态允许时用 M2
+     * {@code MaterialDatePicker}，否则退回系统 {@code DatePickerDialog}（保证功能不丢）。
+     */
+    private static void showDatePicker(final Context context, final String current,
+                                       final java.util.function.Consumer<String> onPicked) {
+        if (context == null || onPicked == null) return;
+        final java.util.Calendar cal = java.util.Calendar.getInstance();
+        try {
+            if (current != null && current.length() >= 10) {
+                java.util.Date d = new java.text.SimpleDateFormat("yyyy-MM-dd",
+                        java.util.Locale.getDefault()).parse(current.substring(0, 10));
+                if (d != null) cal.setTime(d);
+            }
+        } catch (Exception ignored) {
+        }
+        if (context instanceof androidx.fragment.app.FragmentActivity) {
+            androidx.fragment.app.FragmentActivity fa =
+                    (androidx.fragment.app.FragmentActivity) context;
+            if (!fa.getSupportFragmentManager().isStateSaved()) {
+                try {
+                    com.google.android.material.datepicker.MaterialDatePicker<Long> picker =
+                            com.google.android.material.datepicker.MaterialDatePicker.Builder
+                                    .datePicker()
+                                    .setTitleText("选择日期")
+                                    .setSelection(utcDayMillis(
+                                            cal.get(java.util.Calendar.YEAR),
+                                            cal.get(java.util.Calendar.MONTH),
+                                            cal.get(java.util.Calendar.DAY_OF_MONTH)))
+                                    .build();
+                    picker.addOnPositiveButtonClickListener(sel ->
+                            onPicked.accept(formatUtcDay(sel)));
+                    picker.show(fa.getSupportFragmentManager(), "qz_canvas_date");
+                    return;
+                } catch (Throwable ignored) {
+                    // 主题/Fragment 状态不允许时退回系统选择器，不让画布交互直接失效
+                }
+            }
+        }
+        new android.app.DatePickerDialog(context,
+                (view, year, month, dayOfMonth) -> onPicked.accept(String.format(
+                        java.util.Locale.getDefault(), "%04d-%02d-%02d",
+                        year, month + 1, dayOfMonth)),
+                cal.get(java.util.Calendar.YEAR),
+                cal.get(java.util.Calendar.MONTH),
+                cal.get(java.util.Calendar.DAY_OF_MONTH)).show();
+    }
+
+    /**
+     * 时间选择：宿主支持时用 M2 {@code MaterialTimePicker}，否则退回系统
+     * {@code TimePickerDialog}。{@code current} 可以是 "HH:mm" 或 "yyyy-MM-dd HH:mm"。
+     */
+    private static void showTimePicker(final Context context, final String current,
+                                       final java.util.function.Consumer<String> onPicked) {
+        if (context == null || onPicked == null) return;
+        final java.util.Calendar cal = java.util.Calendar.getInstance();
+        try {
+            if (current != null && current.length() >= 5) {
+                java.util.Date d = new java.text.SimpleDateFormat("HH:mm",
+                        java.util.Locale.getDefault())
+                        .parse(current.substring(current.length() - 5));
+                if (d != null) cal.setTime(d);
+            }
+        } catch (Exception ignored) {
+        }
+        if (context instanceof androidx.fragment.app.FragmentActivity) {
+            androidx.fragment.app.FragmentActivity fa =
+                    (androidx.fragment.app.FragmentActivity) context;
+            if (!fa.getSupportFragmentManager().isStateSaved()) {
+                try {
+                    com.google.android.material.timepicker.MaterialTimePicker picker =
+                            new com.google.android.material.timepicker.MaterialTimePicker.Builder()
+                                    .setTitleText("选择时间")
+                                    .setTimeFormat(com.google.android.material.timepicker
+                                            .TimeFormat.CLOCK_24H)
+                                    .setHour(cal.get(java.util.Calendar.HOUR_OF_DAY))
+                                    .setMinute(cal.get(java.util.Calendar.MINUTE))
+                                    .build();
+                    picker.addOnPositiveButtonClickListener(v -> onPicked.accept(String.format(
+                            java.util.Locale.getDefault(), "%02d:%02d",
+                            picker.getHour(), picker.getMinute())));
+                    picker.show(fa.getSupportFragmentManager(), "qz_canvas_time");
+                    return;
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        new android.app.TimePickerDialog(context,
+                (view, hourOfDay, minute) -> onPicked.accept(String.format(
+                        java.util.Locale.getDefault(), "%02d:%02d", hourOfDay, minute)),
+                cal.get(java.util.Calendar.HOUR_OF_DAY),
+                cal.get(java.util.Calendar.MINUTE), true).show();
     }
 
     /**
@@ -4494,14 +4425,6 @@ return attachLabel(context, node, props, srWrap, density);
         return Math.round(base * density);
     }
 
-    /** 表单字段背景（圆角浅底，date/time 选择器用） */
-    private static android.graphics.drawable.Drawable fieldBackground(Context context, int density) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(com.oilquiz.app.ai.chat.component.ComponentColors.fieldBg(context));
-        gd.setCornerRadius(dp(6, density));
-        return gd;
-    }
-
     private static int parseColor(Context context, String hex) {
         try {
             if (hex != null && hex.startsWith("#") && hex.length() >= 7) {
@@ -4577,6 +4500,10 @@ return attachLabel(context, node, props, srWrap, density);
                 out.put(key, ((android.widget.Switch) v).isChecked());
             } else if (v instanceof android.widget.CheckBox) {
                 out.put(key, ((android.widget.CheckBox) v).isChecked());
+            } else if (v instanceof android.widget.CompoundButton) {
+                // SwitchMaterial / MaterialCheckBox / MaterialRadioButton 都继承 CompoundButton；
+                // 只认 android.widget.Switch 的话，换成 M2 开关后值会静默收不到（2026-11-18）
+                out.put(key, ((android.widget.CompoundButton) v).isChecked());
             } else if (v instanceof android.widget.RadioGroup) {
                 android.widget.RadioGroup rg = (android.widget.RadioGroup) v;
                 int checkedId = rg.getCheckedRadioButtonId();
@@ -4592,6 +4519,9 @@ return attachLabel(context, node, props, srWrap, density);
                 Object tag = sb.getTag();
                 if (tag instanceof Integer) min = (Integer) tag;
                 out.put(key, sb.getProgress() + min);
+            } else if (v instanceof Slider) {
+                // M2 Slider：getValue 已是实际值（valueFrom 偏移已含），取整口径与旧 SeekBar 一致
+                out.put(key, Math.round(((Slider) v).getValue()));
             } else if (v instanceof ProgressBar) {
                 out.put(key, ((ProgressBar) v).getProgress());
             } else if (v instanceof ColorRef) {
@@ -4656,6 +4586,22 @@ return attachLabel(context, node, props, srWrap, density);
                     ((android.widget.Switch) v).setChecked(Boolean.parseBoolean(s));
                 } else if (v instanceof android.widget.CheckBox) {
                     ((android.widget.CheckBox) v).setChecked(Boolean.parseBoolean(s));
+                } else if (v instanceof android.widget.CompoundButton) {
+                    // SwitchMaterial 等 M2 控件（不是 android.widget.Switch）走这里回填
+                    ((android.widget.CompoundButton) v).setChecked(Boolean.parseBoolean(s));
+                } else if (v instanceof Slider) {
+                    Slider slider = (Slider) v;
+                    try {
+                        float from = slider.getValueFrom();
+                        float step = slider.getStepSize();
+                        float target = Float.parseFloat(s);
+                        if (step > 0) {
+                            target = from + Math.round((target - from) / step) * step;
+                        }
+                        slider.setValue(Math.max(slider.getValueFrom(),
+                                Math.min(slider.getValueTo(), target)));
+                    } catch (Exception ignored) {
+                    }
                 } else if (v instanceof android.widget.RatingBar) {
                     try {
                         ((android.widget.RatingBar) v).setRating(Float.parseFloat(s));

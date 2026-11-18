@@ -43,6 +43,7 @@ import java.util.Map;
         @Action(name = "list_components", description = "列出当前全部存活组件（component_id/类型/结果状态/persisted是否跨会话持久化），查询与管理用；persisted=true 的组件为历史保留组件，可 update/get_result（get_result 自动重建弹窗）或 close（取消持久化）"),
         @Action(name = "close_all_components", description = "批量关闭全部存活组件（任务收尾防残留）；persist=true 的持久化组件跳过（需跨会话保留）"),
         @Action(name = "get_result", description = "获取组件结果（阻塞等待用户操作，wait_seconds=等待秒数；超时返回 pending=用户未操作，组件保留，可再次 get_result 续取）。**跨会话恢复的持久化组件默认返回 inactive（用户不在场，不弹窗）**；用户在场需交互时传 reactivate=true 重建弹窗再取结果"),
+        @Action(name = "screen_info", description = "获取屏幕尺寸与可用区域（宽高 px/dp、密度、系统栏 inset、推荐画布宽高）。**创建 layout_canvas 前先调它**：把 recommended_canvas_width_dp / recommended_canvas_height_dp / recommended_canvas_max_height_dp 传给 canvas_width / canvas_height / canvas_max_height，避免画布超出屏幕或被夹小；高度要随内容伸缩就传 canvas_height=auto"),
         @Action(name = "progress", description = "更新本轮长任务进度插槽：title=阶段名/message=当前动作/progress=已完成/max_value=总量（只推进度可省略 title/message，沿用上次）。画在输入区上方的细进度条（标题/百分比/说明），不进聊天流、不随消息刷新重建、本轮结束自动收起；长任务每推进一个阶段调一次，不要用 progress_card 反复建卡"),
         @Action(name = "register_type", description = "外部注入自定义原生组件类型：name=类型名(字母数字下划线)+description+render={card:内置卡片 或 layout:原生控件框架树,props:固定字段}+monitor可选+persist(可选布尔,true长久落盘默认,false临时仅内存)；注册后可用 create 直接创建该类型，也可作为其他 layout 树的节点 type 嵌套引用(自动展开 render.layout，节点 props 覆盖模板占位)；无需写代码，纯JSON声明原生UI"),
         @Action(name = "list_types", description = "列出全部已注册的自定义组件类型（含 mode 长久/临时）"),
@@ -52,6 +53,7 @@ import java.util.Map;
     params = {
         @Param(name = "action", type = "string", description = "操作: create/update/close/list_components/close_all_components/get_result/progress(更新本轮长任务进度插槽)", required = true),
         @Param(name = "component_type", type = "string", description = "组件类型: dialog/progress_dialog/input/choice/multi_choice/date/time/snackbar/list_picker/notification/custom(动态自定义原生表单,fields参数定义字段)/layout_canvas(常驻布局画布,传layout=控件树,可选canvas_width/canvas_height/canvas_max_height指定窗口尺寸,创建后可用layout_editor工具动态编辑set/add/patch/get/resize)/file_picker(系统文件选择器,返回content:// URI)/image_picker(相册选图,返回URI)/contact_picker(通讯录选联系人,返回{name,phone,uri})/rating(星级评分1-5)/color(取色器,返回#RRGGBB)/otp(验证码输入,length设位数,默认6)/number(数字输入,min/max范围校验)/marquee(跑马灯滚动文字,text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控,task_id+type=image|video+api_url+api_key,自动轮询查询状态,完成后展示图片或视频并可播放/分享)/video(视频播放,url=视频地址)/audio(音乐音频播放,url=音频地址+title=标题+artist=艺术家)/内置组件(dsh_command(终端命令卡:command+status/output/cwd),dsh_job(后台任务卡:label+status/detail),dsh_notice(生命周期提示卡:title|text+level),chart,info_card,note_card,table_card,image_grid,grid_card,link_card,list_card,alert_card,metric_card,json_viewer,steps_card,file_list,contact_card,todo_card,quiz_card,weather_card,file_card,code_card,progress_card,html,markdown_card,markdown_doc,playlist,agenda,location,diff)/数据卡片(table(headers,rows表格)/steps(steps步骤条)/timeline(items时间线)/alert(type,title,content提示条)/stat(label,value指标卡)/empty(icon,title空态)/notice(icon,text通知条)/progress_ring(环形进度))/图表(line_chart(categories,series折线)/bar_chart(柱状)/pie_chart(data饼图)/sparkline(data迷你趋势))/工具(qrcode(content二维码)/barcode(content条形码)/countdown(seconds倒计时)/calendar(value日历)/breadcrumb(items面包屑))/其他(avatar_group(urls头像组)/toggle(options胶囊开关)/stepper(min/max步进器)/tag_input(标签输入)/badge/quote(text或content+author引用块)/icon)。说明：dialog/progress_dialog/list_picker 等是**弹窗**；上面「内置组件/数据卡片/图表/工具/其他」都是**聊天流卡片**。短名 table/steps/alert/stat/timeline/bar_chart/pie_chart/sparkline/progress_ring 已被原生卡片实现认领（如 table→table_card）；想要 layout 原语那一套长相请写 primitive_ 前缀（如 primitive_timeline、primitive_stat）。web=网页卡片, image=图片卡片。各组件参数可放顶层或 props 内(等效,自动合并)", required = false),
+        @Param(name = "template", type = "string", description = "layout_canvas 内置模板：form(表单)/settings(设置)/dashboard(概览)。传 template 且没传 layout 时自动生成完整布局 + 默认尺寸（height=auto、max=80%）；显式 layout 优先。模板只是起手版式，之后仍可用 layout_editor 改", required = false),
         @Param(name = "component_id", type = "string", description = "组件ID（update/close/get_result用）", required = false),
         @Param(name = "persist", type = "string", description = "是否持久化组件实例（true/false，默认false）：true=跨重启/会话保留，list_components 可见；恢复后默认静默不弹窗，get_result/update 传 reactivate=true 才重建弹窗；close 取消持久化", required = false),
         @Param(name = "reactivate", type = "string", description = "是否重建跨会话恢复的持久化组件弹窗（true/false，默认false）：仅对恢复的历史组件生效，true 时 get_result/update 按创建参数重建弹窗让用户操作", required = false),
@@ -115,11 +117,68 @@ public class SystemUIComponentTool implements AITool {
         try {
             Object actionObj = parameters.get("action");
             if (actionObj == null) {
-                return new AIToolResult("缺少参数: action (create/update/close/list_components/close_all_components/get_result)", parameters);
+                return new AIToolResult("缺少参数: action (screen_info/create/update/close/"
+                        + "list_components/close_all_components/get_result)", parameters);
             }
             String action = actionObj.toString();
 
             switch (action) {
+                case "screen_info": {
+                    // 2026-11-18：让 Agent 先拿屏幕尺寸再算画布尺寸，避免 "canvas_width 传 420
+                    // 结果在 360dp 宽的机器上被夹" 或"只开一个半屏小弹窗"。
+                    try {
+                        android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
+                        float density = dm.density > 0 ? dm.density : 1f;
+                        int widthPx = dm.widthPixels;
+                        int heightPx = dm.heightPixels;
+                        int insetL = 0, insetT = 0, insetR = 0, insetB = 0;
+                        try {
+                            android.view.WindowManager wm =
+                                    (android.view.WindowManager) context.getSystemService(
+                                            android.content.Context.WINDOW_SERVICE);
+                            if (wm != null && android.os.Build.VERSION.SDK_INT >= 30) {
+                                android.view.WindowMetrics metrics = wm.getCurrentWindowMetrics();
+                                android.graphics.Insets insets = metrics.getWindowInsets()
+                                        .getInsetsIgnoringVisibility(
+                                                android.view.WindowInsets.Type.systemBars()
+                                                        | android.view.WindowInsets.Type.displayCutout());
+                                insetL = insets.left;
+                                insetT = insets.top;
+                                insetR = insets.right;
+                                insetB = insets.bottom;
+                            }
+                        } catch (Throwable ignored) {
+                            // 拿不到 insets 就按整屏算
+                        }
+                        int usableW = Math.max(0, widthPx - insetL - insetR);
+                        int usableH = Math.max(0, heightPx - insetT - insetB);
+                        int usableWDp = Math.round(usableW / density);
+                        int usableHDp = Math.round(usableH / density);
+                        org.json.JSONObject out = new org.json.JSONObject();
+                        out.put("width_px", widthPx);
+                        out.put("height_px", heightPx);
+                        out.put("width_dp", Math.round(widthPx / density));
+                        out.put("height_dp", Math.round(heightPx / density));
+                        out.put("usable_width_dp", usableWDp);
+                        out.put("usable_height_dp", usableHDp);
+                        out.put("density", density);
+                        out.put("density_dpi", dm.densityDpi);
+                        out.put("inset_top_px", insetT);
+                        out.put("inset_bottom_px", insetB);
+                        // 画布建议：宽度吃满可用宽 - 32dp（浮层左右各 16dp），
+                        // 高度默认 60%~72% 可用高，auto 时上限 = 可用高 - 32dp。
+                        out.put("recommended_canvas_width_dp", Math.max(240, usableWDp - 32));
+                        out.put("recommended_canvas_height_dp",
+                                Math.max(320, Math.round(usableHDp * 0.65f)));
+                        out.put("recommended_canvas_max_height_dp",
+                                Math.max(320, usableHDp - 32));
+                        out.put("hint", "layout_canvas 创建时把 recommended_* 传给 canvas_width/"
+                                + "canvas_height/canvas_max_height；高度要随内容伸缩用 canvas_height=auto");
+                        return AIToolResult.success(out.toString());
+                    } catch (Throwable t) {
+                        return AIToolResult.fail("获取屏幕信息失败: " + t.getMessage());
+                    }
+                }
                 case "progress": {
                     // 本轮进度插槽：独立于消息流，工具推一条就画一条（不会被聊天刷新冲掉）。
                     // 参数口径与其他动作一致：可放顶层或 props 内（顶层优先），max_value 接受 max 别名。
@@ -154,6 +213,9 @@ public class SystemUIComponentTool implements AITool {
                     // 常驻布局画布：创建前就强制约束（此前只靠 prompt"铁律"，
                     // 非法 layout 会直接渲染成"⚠ 画布渲染失败"的死弹窗，模型看不到原因）
                     if ("layout_canvas".equals(componentType)) {
+                        // 2026-11-18：内置模板（form/settings/dashboard）先展开成 layout + 默认尺寸，
+                        // 模型没给完整 layout 时也能直接开出一张像样的画布（显式 layout 优先）。
+                        com.oilquiz.app.ai.chat.component.CanvasTemplates.apply(parameters);
                         AIToolResult blocked = enforceCanvasLayoutConstraints(parameters);
                         if (blocked != null) {
                             return blocked;
@@ -910,6 +972,26 @@ public class SystemUIComponentTool implements AITool {
                 }
             } catch (Exception stepFailed) {
                 com.oilquiz.app.util.AILogger.w("SystemUIComponentTool", "这一步失败，结果可能被当成正常 · extractCreateParams: " + stepFailed);
+            }
+        }
+        // 画布尺寸（2026-11-18）：canvas_* 之前只在 schema 里写了、extractCreateParams 没透传，
+        // 模型传 canvas_width 会被静默丢弃（画布永远走默认尺寸）。这里并入 props。
+        for (String canvasKey : new String[]{"canvas_width", "canvas_height", "canvas_max_height"}) {
+            Object cv = parameters.get(canvasKey);
+            if (cv == null) {
+                continue;
+            }
+            try {
+                org.json.JSONObject pj = params.containsKey("props")
+                        ? new org.json.JSONObject(String.valueOf(params.get("props")))
+                        : new org.json.JSONObject();
+                if (!pj.has(canvasKey)) {
+                    pj.put(canvasKey, String.valueOf(cv));
+                }
+                params.put("props", pj.toString());
+            } catch (Exception stepFailed) {
+                com.oilquiz.app.util.AILogger.w("SystemUIComponentTool",
+                        "canvas 尺寸透传失败: " + stepFailed.getMessage());
             }
         }
         // items 可能是 List 或 JSON 字符串：统一转成 JSON 字符串

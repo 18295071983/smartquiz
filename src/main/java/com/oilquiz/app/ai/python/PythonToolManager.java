@@ -3188,10 +3188,16 @@ public class PythonToolManager {
         /** 递归收集容器内全部 Button（含无 key 的提交按钮，此前只遍历 layoutViewRefs 漏掉无 key 按钮）。
          *  注意：RadioButton/CheckBox/Switch/ToggleButton 都是 CompoundButton 的子类，
          *  instanceof Button 也会命中——但它们不是提交按钮，必须排除，否则点击单选圆点/
-         *  复选框/开关会误触发"提交→收集→完成 dialog"（实测点击单选圆点 dialog 自动退出）。 */
+         *  复选框/开关会误触发"提交→收集→完成 dialog"（实测点击单选圆点 dialog 自动退出）。
+         *
+         *  <p>2026-11-18：画布控件换成 M2 后，步进器 +/- 和分段选择也是 Button（MaterialButton），
+         *  但它们由控件自己处理点击（只改本地值/选中态），<b>不能</b>被绑成"提交整张画布"。
+         *  这类控件在 {@code CanvasControls.secondaryButton} 里打了 "画布自有交互" 标记，
+         *  这里按标记跳过；真正的 button 节点没有标记，仍按原逻辑绑定。</p> */
         private void collectButtons(android.view.View root, java.util.List<android.widget.Button> out) {
             if (root == null) return;
             if (root instanceof android.widget.CompoundButton) return; // RadioButton/CheckBox/Switch/Toggle 排除
+            if (com.oilquiz.app.ai.chat.component.CanvasControls.isOwned(root)) return; // 画布自有交互（步进器/分段）排除
             if (root instanceof android.widget.Button) {
                 out.add((android.widget.Button) root);
                 return;
@@ -3769,60 +3775,60 @@ public class PythonToolManager {
                             .resolveCanvasSize(propsObj, act);
             session.size = defaultSize;
 
-            androidx.appcompat.app.AlertDialog dialog = com.oilquiz.app.ui.modal.AppDialog.builder(act)
-                    .setTitle(title != null && !title.isEmpty() ? title : "布局画布")
-                    .setView(canvasScroll)
-                    .setCancelable(true)
-                    .setOnCancelListener(d -> {
-                        rt.result.compareAndSet("pending", "cancelled");
-                        synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
-                    })
-                    .create();
+            // 2026-11-18：画布不再用 AppDialog（AlertDialog 标题栏/按钮壳），改成自定义浮动卡：
+            // 24dp 圆角 + 16dp 外边距 + 头部标题/关闭 + 内容随屏幕高度封顶。
+            final android.app.Dialog dialog = buildCanvasDialog(act,
+                    title != null && !title.isEmpty() ? title : "布局画布", canvasScroll);
+            dialog.setOnCancelListener(d -> {
+                rt.result.compareAndSet("pending", "cancelled");
+                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+            });
             rt.dialog = dialog;
 
             /**
-             * 把 session.size 应用到窗口：宽用 window.setLayout（仅模型指定过时介入），
-             * 内容面板高用 android.R.id.custom 的 LayoutParams（auto 时先 WRAP，再按上限封顶）。
+             * 把 session.size 应用到浮动卡：宽 = min(模型指定宽, 屏宽-32dp)，未指定则取屏宽-32dp；
+             * 高作用在画布 ScrollView 的 LayoutParams 上（auto 时先 WRAP，再按上限封顶）。
              * layout_editor(action=resize) 改尺寸后走同一个入口，无需重建弹窗。
              */
             final Runnable applyWindowSize = () -> {
                 try {
-                    if (!dialog.isShowing() || dialog.getWindow() == null) {
+                    if (dialog.getWindow() == null) {
                         return;
                     }
                     com.oilquiz.app.ai.chat.component.LayoutCanvasConstraints.CanvasSize cs =
                             session.size != null ? session.size : defaultSize;
                     android.util.DisplayMetrics dm = act.getResources().getDisplayMetrics();
-                    final int defaultMaxH = (int) (dm.heightPixels
-                            * com.oilquiz.app.ai.chat.component.LayoutCanvasConstraints
-                                    .DEFAULT_CANVAS_HEIGHT_RATIO);
-                    // 1) 窗口宽：模型没指定就不动，保持对话框默认观感
-                    if (cs.widthDp > 0) {
-                        dialog.getWindow().setLayout((int) (cs.widthDp * density),
-                                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-                    }
-                    // 2) 内容面板高
-                    android.widget.FrameLayout panel = dialog.findViewById(android.R.id.custom);
-                    if (panel == null) {
-                        return;
-                    }
-                    android.view.ViewGroup.LayoutParams lp = panel.getLayoutParams();
+                    final int marginPx = Math.round(16 * density);
+                    final int availW = Math.max(Math.round(240 * density),
+                            dm.widthPixels - marginPx * 2);
+                    final int defaultMaxH = Math.min(
+                            (int) (dm.heightPixels
+                                    * com.oilquiz.app.ai.chat.component.LayoutCanvasConstraints
+                                            .DEFAULT_CANVAS_HEIGHT_RATIO),
+                            dm.heightPixels - marginPx * 2);
+                    // 1) 窗口宽：模型指定就夹到屏幕内，未指定吃满可用宽
+                    int wPx = cs.widthDp > 0
+                            ? Math.min((int) (cs.widthDp * density), availW) : availW;
+                    dialog.getWindow().setLayout(wPx, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                    // 2) 内容高（ScrollView 是画布唯一滚动层）
+                    android.view.ViewGroup.LayoutParams lp = canvasScroll.getLayoutParams();
                     if (lp == null) {
                         return;
                     }
                     if (cs.wrapHeight) {
                         lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
-                        panel.setLayoutParams(lp);
+                        canvasScroll.setLayoutParams(lp);
                         final int capPx = cs.maxHeightDp > 0
-                                ? (int) (cs.maxHeightDp * density) : defaultMaxH;
+                                ? Math.min((int) (cs.maxHeightDp * density), defaultMaxH) : defaultMaxH;
                         // 自适应：先按内容测量，超过上限再固定封顶（保证 ScrollView 仍可内滚）
-                        panel.post(() -> {
+                        canvasScroll.post(() -> {
                             try {
-                                if (panel.getMeasuredHeight() > capPx) {
-                                    android.view.ViewGroup.LayoutParams p2 = panel.getLayoutParams();
+                                if (canvasScroll.getMeasuredHeight() > capPx) {
+                                    android.view.ViewGroup.LayoutParams p2 =
+                                            canvasScroll.getLayoutParams();
                                     if (p2 != null) {
                                         p2.height = capPx;
-                                        panel.setLayoutParams(p2);
+                                        canvasScroll.setLayoutParams(p2);
                                     }
                                 }
                             } catch (Throwable ignored) {
@@ -3831,8 +3837,8 @@ public class PythonToolManager {
                     } else {
                         int hPx = cs.heightDp > 0 ? (int) (cs.heightDp * density)
                                 : (cs.maxHeightDp > 0 ? (int) (cs.maxHeightDp * density) : defaultMaxH);
-                        lp.height = hPx;
-                        panel.setLayoutParams(lp);
+                        lp.height = Math.min(hPx, defaultMaxH);
+                        canvasScroll.setLayoutParams(lp);
                     }
                 } catch (Throwable t) {
                     Log.w(TAG, "画布尺寸应用失败: " + t.getMessage());
@@ -3844,10 +3850,51 @@ public class PythonToolManager {
                     .post(applyWindowSize);
 
             // 显示后应用尺寸（含模型自选的宽高上限；受限高度让 ScrollView 内容超出时可滚动）
-            dialog.setOnShowListener(d -> applyWindowSize.run());
+            dialog.setOnShowListener(d -> {
+                applyWindowSize.run();
+                // 2026-11-18：画布打开时不要抢焦点弹键盘（AutoCompleteTextView/EditText 在
+                // WRAP 测量里被 attach 后可能自动聚焦）。用户点了输入框再弹。
+                try {
+                    android.view.Window w = dialog.getWindow();
+                    if (w != null) {
+                        w.setSoftInputMode(android.view.WindowManager.LayoutParams
+                                .SOFT_INPUT_ADJUST_RESIZE
+                                | android.view.WindowManager.LayoutParams
+                                .SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+                        canvasScroll.clearFocus();
+                        android.view.View decor = w.getDecorView();
+                        decor.postDelayed(() -> {
+                            try {
+                                canvasScroll.clearFocus();
+                                android.view.inputmethod.InputMethodManager imm =
+                                        (android.view.inputmethod.InputMethodManager)
+                                                act.getSystemService(android.content.Context
+                                                        .INPUT_METHOD_SERVICE);
+                                if (imm != null) {
+                                    imm.hideSoftInputFromWindow(decor.getWindowToken(), 0);
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }, 150);
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
             // 画布弹窗统一走 configureDialogInput 的 IME 配置（与 custom 表单一致，保证输入框可弹键盘）；
             // 不额外设置 FLAG_DIM_BEHIND/setCanceledOnTouchOutside，避免干扰 window 输入焦点链。
+            // 2026-11-18（用户要求）：画布不使用壁纸。弹窗期间在 Activity 上盖一层
+            // 不透明主题底（colorBackground），浮卡落在纯色底上；关闭即移除。
+            final android.view.View canvasBackdrop = addCanvasBackdrop(act);
+            if (canvasBackdrop != null) {
+                // 点卡外区域关闭（浮动窗只覆盖卡片本身，外部点击落在这层底上）
+                canvasBackdrop.setOnClickListener(v -> dialog.dismiss());
+            }
             dialog.setOnDismissListener(d -> {
+                removeCanvasBackdrop(canvasBackdrop);
+                try {
+                    com.oilquiz.app.theme.EdgeToEdgeHelper.applySystemBarIcons(act);
+                } catch (Throwable ignored) {
+                }
                 com.oilquiz.app.ai.chat.component.LayoutCanvasManager.getInstance()
                         .unregister(componentId);
                 rt.result.compareAndSet("pending", "closed");
@@ -3859,6 +3906,148 @@ public class PythonToolManager {
             renderCanvas.run();
             dialog.show();
             Log.i(TAG, "[Python component] layout canvas created: " + componentId);
+        }
+
+        /**
+         * 画布期间的"无壁纸底"（2026-11-18，用户要求）：在 Activity 的 DecorView 上盖一层
+         * 不透明 {@code ?attr/colorBackground}，画布浮卡落在纯色底上；关闭时移除。
+         *
+         * <p>为什么不用 windowBackground：壁纸是 EdgeToEdgeHelper 设在 Activity 窗口上的，
+         * 浮动 Dialog 的窗口只有卡片大小，改自己的 window 背景盖不住壁纸。</p>
+         */
+        private android.view.View addCanvasBackdrop(android.app.Activity act) {
+            try {
+                if (act == null || act.isFinishing()) {
+                    return null;
+                }
+                android.view.ViewGroup decor =
+                        (android.view.ViewGroup) act.getWindow().getDecorView();
+                android.view.View backdrop = new android.view.View(act);
+                int bg = com.oilquiz.app.theme.ThemeColors.attr(act, R.attr.colorBackground);
+                if (bg == 0) {
+                    bg = com.oilquiz.app.theme.ThemeColors.get(act, R.color.background);
+                }
+                backdrop.setBackgroundColor(bg);
+                backdrop.setClickable(true);
+                decor.addView(backdrop, new android.widget.FrameLayout.LayoutParams(
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+                // 底变成不透明主题色后，状态栏图标明暗要按"这层底的实际亮度"重算，
+                // 否则浅底白字/深底黑字看不清（主题模式和实际底色不一定一致）
+                com.oilquiz.app.theme.EdgeToEdgeHelper.syncStatusBarIcons(act, backdrop);
+                return backdrop;
+            } catch (Throwable t) {
+                Log.w(TAG, "画布背景层添加失败: " + t.getMessage());
+                return null;
+            }
+        }
+
+        /** 移除 {@link #addCanvasBackdrop} 加的底（幂等，关闭/异常路径都能调）。 */
+        private void removeCanvasBackdrop(android.view.View backdrop) {
+            try {
+                if (backdrop == null) {
+                    return;
+                }
+                android.view.ViewParent parent = backdrop.getParent();
+                if (parent instanceof android.view.ViewGroup) {
+                    ((android.view.ViewGroup) parent).removeView(backdrop);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+
+        /**
+         * 画布浮层外壳（2026-11-18）：自定义 Dialog + 浮动 Card，替换 AppDialog 的标题栏/按钮壳。
+         *
+         * <p>样式：24dp 圆角、16dp 外边距、头部只保留标题 + 关闭、深浅/换肤跟随
+         * （card 底色取 colorSurfaceContainerLow，描边取 colorOutlineVariant）。
+         * 内容直接塞画布 ScrollView——重渲染只替换它的子 view，不重建弹窗。</p>
+         */
+        private android.app.Dialog buildCanvasDialog(final android.app.Activity act,
+                                                     String title,
+                                                     android.view.View content) {
+            final android.app.Dialog dialog = new android.app.Dialog(act);
+            dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+            final float density = act.getResources().getDisplayMetrics().density;
+            final int pad = Math.round(16 * density);
+
+            com.google.android.material.card.MaterialCardView card =
+                    new com.google.android.material.card.MaterialCardView(act);
+            card.setRadius(Math.round(24 * density));
+            card.setCardElevation(Math.round(4 * density));
+            card.setUseCompatPadding(false);
+            int bg = com.oilquiz.app.theme.ThemeColors.attr(act, R.attr.colorSurfaceContainerLow);
+            card.setCardBackgroundColor(bg != 0 ? bg
+                    : com.oilquiz.app.theme.ThemeColors.get(act, R.color.surface));
+            int stroke = com.oilquiz.app.theme.ThemeColors.attr(act, R.attr.colorOutlineVariant);
+            card.setStrokeWidth(1);
+            card.setStrokeColor(stroke != 0 ? stroke
+                    : com.oilquiz.app.theme.ThemeColors.get(act, R.color.border));
+
+            int textColor = com.oilquiz.app.theme.ThemeColors.attr(act, R.attr.colorControlText);
+            if (textColor == 0) {
+                textColor = com.oilquiz.app.theme.ThemeColors.get(act, R.color.text_primary);
+            }
+
+            android.widget.LinearLayout root = new android.widget.LinearLayout(act);
+            root.setOrientation(android.widget.LinearLayout.VERTICAL);
+
+            // 头部：标题 + 关闭（只有这一层 chrome；不要 AlertDialog 的标题栏/底部按钮栏）
+            android.widget.LinearLayout header = new android.widget.LinearLayout(act);
+            header.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            header.setPadding(pad, Math.round(10 * density), Math.round(6 * density), 0);
+
+            android.widget.TextView titleTv = new android.widget.TextView(act);
+            titleTv.setText(title == null || title.isEmpty() ? "布局画布" : title);
+            titleTv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 17);
+            titleTv.setTypeface(android.graphics.Typeface.create(
+                    "sans-serif-medium", android.graphics.Typeface.BOLD));
+            titleTv.setTextColor(textColor);
+            titleTv.setMaxLines(1);
+            titleTv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            header.addView(titleTv, new android.widget.LinearLayout.LayoutParams(0,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+            android.widget.TextView close = new android.widget.TextView(act);
+            close.setText("✕");
+            close.setGravity(android.view.Gravity.CENTER);
+            close.setContentDescription("关闭画布");
+            close.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
+            close.setTextColor(textColor);
+            android.util.TypedValue ripple = new android.util.TypedValue();
+            act.getTheme().resolveAttribute(
+                    android.R.attr.selectableItemBackgroundBorderless, ripple, true);
+            if (ripple.resourceId != 0) {
+                close.setBackgroundResource(ripple.resourceId);
+            }
+            int touch = Math.round(44 * density);
+            close.setLayoutParams(new android.widget.LinearLayout.LayoutParams(touch, touch));
+            close.setOnClickListener(v -> dialog.dismiss());
+            header.addView(close);
+            root.addView(header);
+
+            // 内容：画布 ScrollView（resize/重渲染都只改它，不重建弹窗）
+            root.addView(content, new android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+            card.addView(root, new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT));
+            dialog.setContentView(card);
+            dialog.setCancelable(true);
+
+            android.view.Window window = dialog.getWindow();
+            if (window != null) {
+                window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
+                        android.graphics.Color.TRANSPARENT));
+                // 不加 FLAG_DIM_BEHIND：画布期间已经盖了一层不透明主题底（addCanvasBackdrop），
+                // 再叠 dim 只会把主题底压暗，偏离"纯色弹窗底"的观感。
+                window.setGravity(android.view.Gravity.CENTER);
+                // 16dp 外边距由 applyWindowSize 的"窗口宽 = 屏宽 - 32dp"保证（窗口居中，
+                // 两侧各留 16dp）；不要再给 decor 加 padding，否则会叠成 32dp 边距。
+            }
+            return dialog;
         }
 
         /** 自动关闭调度：autoCloseSeconds>0 且组件已显示时，N 秒后 dismiss 并置 result=closed。
@@ -3890,6 +4079,15 @@ public class PythonToolManager {
          */
         @SuppressWarnings("deprecation") // 弹窗窗口仍靠 ADJUST_RESIZE 跟输入法收缩，暂无等价替代
         private void configureDialogInput(androidx.appcompat.app.AlertDialog dialog) {
+            if (dialog == null) return;
+            configureDialogInput((android.app.Dialog) dialog);
+        }
+
+        /**
+         * 通用 Dialog 版本（2026-11-18）：画布改成自定义浮动 Dialog（不是 AlertDialog），
+         * IME 配置逻辑完全复用；其它组件仍走 AlertDialog 重载。
+         */
+        private void configureDialogInput(android.app.Dialog dialog) {
             if (dialog == null || dialog.getWindow() == null) return;
             try {
                 // 统一 ADJUST_RESIZE：弹窗内容随输入法收缩，避免遮挡（无输入控件也无害）。
