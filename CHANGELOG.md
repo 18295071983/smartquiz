@@ -1,5 +1,19 @@
 # 变更日志
 
+## [2026-11-19] feat(local-dsh): 内置 Ubuntu 容器里跑通 DSH phone profile + 本机 LLM 代理
+
+- 手机 App 的 Ubuntu 容器（proot-distro）里部署 **DSH 0.2.2-rc.1**（电脑交叉装 linux-arm64，
+  按 dsh-go 做法打 133 个补丁 + 手工补 flock/require-builtin/hardlink 三类 Android 补丁，
+  并补上 `dsh-go-deletion.mjs`），phone profile 启动成功。
+- **实测**：`POST /v2/llm/chat/completions` → 200（`deepseek-flash` 真实回复）；
+  `GET /v2/llm/account` → `{"ok":true,"signed_in":true,"provider":"deepseek-account"}`。
+- 容器里补了 `xdg-user-dir DOCUMENTS`（→ `/root/Documents`），解决 DSH "无法创建默认工作区"。
+- App：`LocalDshManager.pluginToken()` 读 `Download/OilQuiz/termux_env/dsh_token.txt`，
+  读不到时经命令通道 `cat` 回读并缓存；探测 `/status` 带 Bearer；
+  「用本机 DSH 账号」自动填 `http://127.0.0.1:8218/v2/llm` + 插件令牌。
+
+## 变更日志
+
 ## [2026-11-18] fix(termux): 第 4 步初始化命令不再卡在 termux-setup-storage 交互确认
 
 - 真机现象：`~/storage` 已存在时 `termux-setup-storage` 会问

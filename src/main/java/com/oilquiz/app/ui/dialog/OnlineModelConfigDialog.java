@@ -1024,7 +1024,9 @@ public class OnlineModelConfigDialog {
     private void fillLocalDshProxy() {
         String base = com.oilquiz.app.ai.tool.LocalDshManager.pluginUrl(context);
         urlInput.setText(base + "/v2/llm");
-        keyInput.setText("local");
+        // 2026-11-19：桥接要求 Bearer 令牌；优先读容器同步出来的 dsh_token.txt
+        String tok = com.oilquiz.app.ai.tool.LocalDshManager.pluginToken(context);
+        keyInput.setText(tok.isEmpty() ? "local" : tok);
         if (nameInput.getText().toString().trim().isEmpty()) {
             nameInput.setText("本机 DSH");
         }

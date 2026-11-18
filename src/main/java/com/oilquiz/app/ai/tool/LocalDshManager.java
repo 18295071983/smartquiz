@@ -58,6 +58,54 @@ public final class LocalDshManager {
         return prefs(c).getInt(K_WEB_PORT, DEFAULT_WEB_PORT);
     }
 
+    /**
+     * 2026-11-19：本机 DSH 插件的访问令牌。
+     *
+     * <p>插件首次启动会生成 32 位 hex 令牌并存进容器里的 {@code /root/plugin/.token}；
+     * 容器脚本会把它同步到 {@code Download/OilQuiz/termux_env/dsh_token.txt}，
+     * App 读这个文件，避免用户手抄。读不到返回空串（退回旧的 "local"）。</p>
+     */
+    public static String pluginToken(Context c) {
+        SharedPreferences p = prefs(c);
+        String cached = p.getString("local_dsh_token", "");
+        if (cached != null && !cached.isEmpty()) return cached;
+        String t = readTokenFile(c);
+        if (!t.isEmpty()) p.edit().putString("local_dsh_token", t).apply();
+        return t;
+    }
+
+    private static String readTokenFile(Context c) {
+        try {
+            String t = PublicStorageWriter.readTail(c, "termux_env", "dsh_token.txt", 128);
+            if (t == null) return "";
+            return t.trim().replace("\n", "").replace("\r", "");
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /**
+     * 2026-11-19：拿不到 token 文件时（Termux 直接写的文件 App 的 MediaStore 可能看不到），
+     * 走一次命令通道 `cat` 取回来并缓存。会阻塞几秒，只在后台线程调用。
+     */
+    public static String pluginTokenFresh(Context c) {
+        String t = pluginToken(c);
+        if (!t.isEmpty()) return t;
+        try {
+            TermuxEnvInstaller.ChannelResult r = TermuxEnvInstaller.runInTermuxAndWait(
+                    c, "cat /sdcard/Download/OilQuiz/termux_env/dsh_token.txt", 10);
+            if (r != null && r.ok && r.stdout != null) {
+                String v = r.stdout.trim().replace("\n", "").replace("\r", "");
+                if (!v.isEmpty()) {
+                    prefs(c).edit().putString("local_dsh_token", v).apply();
+                    return v;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return "";
+    }
+
     public static void setWebPort(Context c, int port) {
         prefs(c).edit().putInt(K_WEB_PORT, port <= 0 ? DEFAULT_WEB_PORT : port).apply();
     }
@@ -70,6 +118,9 @@ public final class LocalDshManager {
             conn.setConnectTimeout(2000);
             conn.setReadTimeout(2500);
             conn.setRequestMethod("GET");
+            // 2026-11-19：桥接现在强制 Bearer（8218 不算 isLocal），探测也要带令牌
+            String tok = pluginTokenFresh(c);
+            if (!tok.isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + tok);
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) return false;
             try (InputStream in = conn.getInputStream()) {
