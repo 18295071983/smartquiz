@@ -156,6 +156,29 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             });
         }
 
+        // 插件总开关（2026-11-18）：手机端默认关闭；关闭时禁用本页所有操作按钮并断开连接
+        com.google.android.material.switchmaterial.SwitchMaterial pluginSwitch =
+                findViewById(R.id.switch_remote_plugin);
+        if (pluginSwitch != null) {
+            pluginSwitch.setChecked(RemoteDshTool.isPluginEnabled(this));
+            pluginSwitch.setOnCheckedChangeListener((btn, checked) -> {
+                RemoteDshTool.setPluginEnabled(this, checked);
+                applyPluginGate();
+                toast(checked ? "远程 DSH 插件已启用" : "远程 DSH 插件已关闭");
+            });
+        }
+        applyPluginGate();
+        // 打开即停在顶部：地址输入框会自动聚焦并把页面滚到中部
+        android.view.View rootScroll = findViewById(R.id.root_scroll);
+        if (rootScroll != null) {
+            rootScroll.post(() -> {
+                rootScroll.clearFocus();
+                if (rootScroll instanceof android.widget.ScrollView) {
+                    ((android.widget.ScrollView) rootScroll).scrollTo(0, 0);
+                }
+            });
+        }
+
         android.view.View guideBtn = findViewById(R.id.btn_guide);
         if (guideBtn != null) {
             guideBtn.setOnClickListener(v ->
@@ -1617,8 +1640,52 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     }
 
     private void setEnabled(MaterialButton b, boolean enabled) {
-        b.setEnabled(enabled);
-        b.setAlpha(enabled ? 1f : 0.5f);
+        if (b == null) {
+            return;
+        }
+        // 插件总开关优先：关着的时候任何按钮都不该可点（开关本身除外）
+        boolean effective = enabled && RemoteDshTool.isPluginEnabled(this);
+        b.setEnabled(effective);
+        b.setAlpha(effective ? 1f : 0.5f);
+    }
+
+    /**
+     * 插件总开关的界面联动（2026-11-18）：关闭时禁用本页全部操作按钮、断开已有连接。
+     * 开关本身始终可用，否则关了就再也打不开了。
+     */
+    private void applyPluginGate() {
+        boolean on = RemoteDshTool.isPluginEnabled(this);
+        int[] ids = {R.id.btn_profiles, R.id.btn_insight, R.id.btn_connect, R.id.btn_disconnect,
+                R.id.btn_scan, R.id.btn_clear, R.id.btn_save, R.id.btn_quick_test,
+                R.id.btn_self_check, R.id.btn_import_history, R.id.btn_pick_session};
+        for (int id : ids) {
+            android.view.View v = findViewById(id);
+            if (v != null) {
+                v.setEnabled(on);
+                v.setAlpha(on ? 1f : 0.5f);
+            }
+        }
+        android.view.View hint = findViewById(R.id.plugin_switch_hint);
+        if (hint instanceof android.widget.TextView) {
+            ((android.widget.TextView) hint).setText(on
+                    ? "已启用：可导出/安装电脑端插件并连接，AI 可用 remote_dsh 控制电脑。"
+                    : "已关闭（默认）：不导出/不连接电脑，AI 也不再调用 remote_dsh。");
+        }
+        if (!on) {
+            try {
+                if (RemoteDshTool.isConnected(this)) {
+                    RemoteDshTool.disconnect(this);
+                }
+            } catch (Throwable ignored) {
+                // 断开失败不影响开关本身
+            }
+            // 停掉常驻同步前台服务：否则通知栏那条"电脑连接"还在，界面却没连
+            try {
+                stopService(new android.content.Intent(this,
+                        com.oilquiz.app.ai.tool.RemoteSyncService.class));
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     private static String text(TextInputEditText et) {

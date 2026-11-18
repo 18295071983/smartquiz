@@ -28,6 +28,11 @@ public class RemoteCmdActionReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         if (intent == null) return;
+        // 插件总开关关掉时，电脑端下发的通知按钮一律不处理（2026-11-18）
+        if (!RemoteDshTool.isPluginEnabled(context)) {
+            android.util.Log.i("RemoteCmdAction", "插件已关闭，忽略通知动作");
+            return;
+        }
         final String approvalId = intent.getStringExtra(EXTRA_APPROVAL_ID);
         if (approvalId != null && !approvalId.isEmpty()) {
             final boolean allow = "allow".equals(intent.getStringExtra(EXTRA_APPROVAL_DECISION));

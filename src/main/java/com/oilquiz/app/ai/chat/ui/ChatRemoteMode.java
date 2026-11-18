@@ -21,19 +21,27 @@ public final class ChatRemoteMode {
     private ChatRemoteMode() {
     }
 
-    /** 已配对（配置里存了电脑地址与令牌）。 */
+    /**
+     * 已配对（配置里存了电脑地址与令牌）。
+     *
+     * <p>2026-11-18：插件总开关关掉时，**界面一律按未配对渲染**——配对信息仍留在 prefs 里
+     * （下次打开开关不用重配），但顶栏/状态条/空首屏都回到本地态，不能因为"配过"就把
+     * 聊天页改成远程外壳。</p>
+     */
     public static boolean isConfigured(Context ctx) {
         try {
-            return com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(ctx);
+            return com.oilquiz.app.ai.tool.RemoteDshTool.isPluginEnabled(ctx)
+                    && com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(ctx);
         } catch (Throwable t) {
             return false;
         }
     }
 
-    /** 通道在线（{@code RemoteConnection.isOnline()} 的同一判据）。 */
+    /** 通道在线（{@code RemoteConnection.isOnline()} 的同一判据）；插件关闭时恒为 false。 */
     public static boolean isConnected(Context ctx) {
         try {
-            return com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(ctx);
+            return com.oilquiz.app.ai.tool.RemoteDshTool.isPluginEnabled(ctx)
+                    && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(ctx);
         } catch (Throwable t) {
             return false;
         }

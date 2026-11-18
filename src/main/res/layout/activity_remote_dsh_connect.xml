@@ -5,6 +5,7 @@
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root_scroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?attr/colorBackground"
@@ -15,6 +16,54 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/space_16">
+
+        <!-- ===== 插件总开关（2026-11-18）：手机端默认关闭；关闭后不导出/连接，AI 也不调用 remote_dsh ===== -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="@dimen/elev_4"
+            app:cardCornerRadius="@dimen/radius_16"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="@dimen/space_16">
+
+                <LinearLayout
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="启用远程 DSH 插件"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="?attr/colorControlText"/>
+
+                    <TextView
+                        android:id="@+id/plugin_switch_hint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_4"
+                        android:text="关闭后：不导出/安装电脑端插件、不连电脑，AI 也不再调用 remote_dsh。"
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorControlTextHint"/>
+                </LinearLayout>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_remote_plugin"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_12"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
         <!-- 连接配置列表（2026-11-14）：固定容器，代码只往里填 chips。
              不再用"动态插到某个父容器"的做法——那条路依赖布局结构，真机上失配过三次。 -->

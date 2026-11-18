@@ -981,11 +981,18 @@ public class RemoteDshTool implements AITool {
                             String name = o.optString("name", "file.bin");
                             if (buf != null) {
                                 try {
-                                    java.io.File out = new java.io.File(
-                                            c.getCacheDir(), name.replaceAll("[\\\\/:*?\"<>|]", "_"));
+                                    java.io.File dir = new java.io.File(c.getCacheDir(), "tool_refs");
+                                    //noinspection ResultOfMethodCallIgnored
+                                    dir.mkdirs();
+                                    String safe = name.replaceAll("[\\\\/:*?\"<>|]", "_");
+                                    java.io.File out = new java.io.File(dir,
+                                            id.isEmpty() ? safe : id);
                                     java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
                                     buf.writeTo(fos);
                                     fos.close();
+                                    // 登记给渲染器：ref.id → 本地文件（不再让 UI 猜路径）
+                                    com.oilquiz.app.ai.remote.ReceivedFileStore.put(
+                                            id, out, name, o.optString("mime", ""));
                                     Log.i(TAG, "WS 收到文件 " + name + " → " + out
                                             + " (" + out.length() + " 字节)");
                                 } catch (Throwable t) {
@@ -995,6 +1002,8 @@ public class RemoteDshTool implements AITool {
                             break;
                         }
                         case "file_error":
+                            com.oilquiz.app.ai.remote.ReceivedFileStore.fail(
+                                    o.optString("id", ""), o.optString("error", ""));
                             Log.w(TAG, "WS 文件流失败: " + o.optString("error", ""));
                             break;
                         default:
@@ -1877,6 +1886,21 @@ public class RemoteDshTool implements AITool {
                 .edit().putBoolean("remote_bar_rotate", enabled).apply();
     }
 
+    // ---------- 远程 DSH 插件总开关（2026-11-18）----------
+    // 与"状态条显示"分开：这是功能级开关，关掉后不导出/不连接、AI 也不再调用 remote_dsh。
+    // 手机端默认关闭（用户口径：手机端无关，不用远程控制就不该常驻）。
+    private static final String KEY_PLUGIN_ENABLED = "remote_dsh_plugin_enabled";
+
+    public static boolean isPluginEnabled(Context c) {
+        return c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
+                .getBoolean(KEY_PLUGIN_ENABLED, false);
+    }
+
+    public static void setPluginEnabled(Context c, boolean enabled) {
+        c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_PLUGIN_ENABLED, enabled).apply();
+    }
+
     public static boolean isBarEnabled(Context c) {
         return c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
                 .getBoolean(KEY_SHOW_BAR, false);
@@ -2058,6 +2082,11 @@ public class RemoteDshTool implements AITool {
 
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
+        // 插件总开关（手机端默认关）：关闭时所有动作直接拒绝，不再打网络/连电脑。
+        if (!isPluginEnabled(context)) {
+            return AIToolResult.fail("远程 DSH 插件已关闭（手机端默认关闭）。\n"
+                    + "打开路径：工具集 → 设置与数据 → 远程连接（电脑）→ 顶部「启用远程 DSH 插件」开关。");
+        }
         String action = "run";
         Object actObj = parameters.get("action");
         if (actObj != null && !String.valueOf(actObj).trim().isEmpty()) {

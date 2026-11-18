@@ -53,6 +53,8 @@ public class RemoteSyncService extends Service {
     public static void ensureStarted(Context context) {
         if (context == null) return;
         try {
+            // 插件总开关关掉时不再拉起常驻连接（2026-11-18；配对信息保留，打开开关后自动恢复）
+            if (!RemoteDshTool.isPluginEnabled(context)) return;
             if (!RemoteDshTool.isConfigured(context)) return;
             Intent svc = new Intent(context, RemoteSyncService.class);
             svc.setAction(ACTION_BOOT_START);

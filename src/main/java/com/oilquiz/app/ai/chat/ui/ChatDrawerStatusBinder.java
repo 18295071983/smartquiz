@@ -133,7 +133,9 @@ public final class ChatDrawerStatusBinder {
     public static void refresh(Activity activity) {
         if (activity == null) return;
         try {
-            boolean remote = com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(activity)
+            // 插件总开关关掉时抽屉也按本地渲染（配对信息仍在，只是不显示远程态）
+            boolean remote = com.oilquiz.app.ai.tool.RemoteDshTool.isPluginEnabled(activity)
+                    && com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(activity)
                     && com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(activity);
             applyLabels(activity, remote);
             if (remote) {
