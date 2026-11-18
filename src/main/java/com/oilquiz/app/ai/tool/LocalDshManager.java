@@ -90,6 +90,18 @@ public final class LocalDshManager {
      * 需要：Termux 已装、已授 RUN_COMMAND、且已装好 dsh（用户已验证）。
      */
     public static String start(Context c) {
+        // 先体检 Termux 通道：不通就别发命令白等 60 秒
+        TermuxChannel.Status st = TermuxChannel.check(c);
+        if (!st.ok) {
+            if (st.needsAllowExternalApps()) {
+                // 一次性设置：自动复制修复命令并打开 Termux，用户粘一次即可
+                String msg = TermuxChannel.copyFixAndOpen(c);
+                return "Termux 通道还差一次性设置（allow-external-apps）。\n" + msg
+                        + "\n粘完回 App 再点「启动」。";
+            }
+            return "Termux 通道不可用：" + st.summary()
+                    + "\n先在「远程连接」页点「通道检查 / 修复（Termux）」。";
+        }
         int port = webPort(c);
         // 用手机工作区实测过的 dsh-phone（网页 7788 + 桥接 8218 + token URL 落盘）
         String cmd = "export PATH=\"$PREFIX/bin:$PATH\"; "

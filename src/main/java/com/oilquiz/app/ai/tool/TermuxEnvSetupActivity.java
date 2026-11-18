@@ -211,6 +211,14 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 channelState = probe.ok ? "可用 ✓" : "不可用 ✗";
                 channelError = probe.ok ? null : probe.error;
                 channelCause = probe.ok ? null : probe.timeoutCause;
+                // 2026-11-18：Termux 明确回执 allow-external-apps 没开（Error Code 2），单独归因，
+                // 别再让人去"唤醒进程"；向导会自动落到「复制修复命令并打开 Termux」。
+                String raw = probe == null ? ""
+                        : (String.valueOf(probe.error) + " " + String.valueOf(probe.errmsg));
+                if (probe != null && !probe.ok && raw.toLowerCase().contains("allow-external-apps")) {
+                    channelCause = "allow_external_apps";
+                    channelState = "不可用 ✗（allow-external-apps 未开，点下方复制修复命令）";
+                }
                 refresh();
             });
         }, "quick-channel-probe").start();

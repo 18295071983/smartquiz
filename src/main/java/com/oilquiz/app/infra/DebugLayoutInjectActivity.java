@@ -288,6 +288,25 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // Termux / Ubuntu 环境探针：--es mode termux_probe
+        if ("termux_probe".equals(getIntent().getStringExtra("mode"))) {
+            new Thread(() -> {
+                String cmd = "echo '==termux=='; command -v node; node -v 2>/dev/null; "
+                        + "command -v dsh; echo '==ubuntu=='; "
+                        + "proot-distro login ubuntu -- bash -lc 'command -v node; node -v 2>/dev/null; "
+                        + "command -v dsh; ls /usr/lib/node_modules 2>/dev/null | head -5' 2>&1";
+                com.oilquiz.app.ai.tool.TermuxEnvInstaller.ChannelResult r =
+                        com.oilquiz.app.ai.tool.TermuxEnvInstaller.runInTermuxAndWait(this, cmd, 40);
+                Log.i(TAG, "TERMUX_PROBE ok=" + (r != null && r.ok)
+                        + " cause=" + (r == null ? null : r.timeoutCause)
+                        + "\nSTDOUT:\n" + (r == null ? "" : r.stdout)
+                        + "\nSTDERR:\n" + (r == null ? "" : r.stderr)
+                        + "\nERROR:" + (r == null ? "" : r.error));
+                finish();
+            }, "termux-probe").start();
+            return;
+        }
+
         // Termux 环境页自检：--es mode termux_page
         if ("termux_page".equals(getIntent().getStringExtra("mode"))) {
             try {

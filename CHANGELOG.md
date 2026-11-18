@@ -1,5 +1,16 @@
 # 变更日志
 
+## [2026-11-18] fix(termux): allow-external-apps 单独归因 + 一键引导（通道修复拎出来）
+
+- **实测拦路虎**：Termux 回执 `RunCommandService requires allow-external-apps ...`
+  （Error Code 2），不是超时；之前会被误判成"进程没起来"，让人白唤醒。
+- `TermuxChannel` 新增 `allow_external_apps` 归因：独立体检/修复入口（远程连接页
+  「通道检查 / 修复（Termux）」），对话框首项就是「复制修复命令并打开 Termux」。
+- 「启动本机 DSH」遇到该归因会**自动复制修复命令并打开 Termux**，粘一次后回来再点启动。
+- 「完整 Python 环境」页通道自检文案也标出该原因（向导自动落到「复制修复命令」）。
+- 为什么不能全自动：`~/.termux/termux.properties` 在 Termux 私有目录，App 无权写；
+  RUN_COMMAND 本身又被这个属性挡着（先有鸡还是先有蛋），无 root/ADB 时只能一次粘贴。
+
 ## [2026-11-18] feat(termux): 本机 DSH 环境（Termux 里跑真 DSH，登录由 DSH 完成）
 
 - **Termux 配置页**新增两个入口：「准备 DSH 环境（Termux 装 Node + DSH）」
