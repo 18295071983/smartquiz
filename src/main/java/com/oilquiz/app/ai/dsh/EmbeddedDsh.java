@@ -117,6 +117,7 @@ public final class EmbeddedDsh {
         new File(r, "mnt/sdcard").mkdirs();
 
         new File(r, "root/Documents").mkdirs();
+        new File(r, "root/workspace").mkdirs();
         new File(r, "root/.dsh").mkdirs();
         new File(r, "tmp").mkdirs();
         File resolv = new File(r, "etc/resolv.conf");
@@ -259,6 +260,7 @@ public final class EmbeddedDsh {
                 prepare(c);
                 ensureDshLayer(c);
                 ensureConfig(c);
+                new File(rootfs(c), "root/workspace").mkdirs();
             } catch (Throwable t) {
                 Log.e(TAG, "prepare failed", t);
                 return "运行时解压失败：" + t.getMessage();
@@ -310,7 +312,7 @@ public final class EmbeddedDsh {
         }
         cmd.add("-w");
         // 2026-11-19：工作目录放到手机工作区（/sdcard 已挂载），不再停在 /root
-        cmd.add("/sdcard/Download/OilQuiz/agent_workspace");
+        cmd.add("/root/workspace");
         cmd.add("/usr/local/bin/dsh");
         cmd.add("phone");
         cmd.add("--no-open");
