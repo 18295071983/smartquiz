@@ -583,7 +583,11 @@ public final class TermuxEnvInstaller {
             "dsh-install.sh", "dsh-phone.sh", "dsh-launcher.sh", "dsh-serve.sh"};
 
     /** 一次性授予 Termux 存储权限的命令（用户粘一次；之后 App 才能读公共目录）。 */
-    public static final String TERMUX_STORAGE_FIX_COMMAND = "termux-setup-storage";
+    // 2026-11-18：~/storage 残留会让 termux-setup-storage 停在 "(y/n)"，不答 y 就直接
+    // "Aborting configuration and leaving directory intact" → 权限永远授不上。
+    // 先删掉残留（只删软链，不动实际文件），再跑就没有交互确认了。
+    public static final String TERMUX_STORAGE_FIX_COMMAND =
+            "rm -rf ~/storage; termux-setup-storage";
 
     /**
      * 2026-11-18：全新 Termux 的**一次粘贴**初始化：存储权限 + allow-external-apps。
@@ -596,8 +600,7 @@ public final class TermuxEnvInstaller {
             // 直接粘一整行会卡在这个交互提示（真机踩到）；这里做两件事：
             // ① 只在存储真的不可用时才调用；② 自动喂 y，避免任何交互。
             // 注意：不要再在末尾加 exit —— 会直接关掉 Termux 会话，用户看起来像"闪退"（真机踩到）。
-            "if [ -e ~/storage/downloads ]; then echo '存储已就绪，跳过 termux-setup-storage'; "
-            + "else termux-setup-storage; fi; "
+            "rm -rf ~/storage 2>/dev/null; termux-setup-storage; "
             + "mkdir -p ~/.termux; "
             + "grep -q '^allow-external-apps' ~/.termux/termux.properties 2>/dev/null"
             + " || echo 'allow-external-apps=true' >> ~/.termux/termux.properties; "
@@ -1783,7 +1786,8 @@ public final class TermuxEnvInstaller {
         }
         // setup.sh 由 App 生成到公共目录；Termux 侧先 termux-setup-storage 建桥（弹窗点允许），
         // 再区分两种失败：存储没授权（~/storage 不存在） vs 脚本没生成（App 还没写），给出明确提示。
-        return "termux-setup-storage 2>/dev/null; f=\"$HOME/storage/downloads/" + EXPORT_SUBDIR
+        return "rm -rf \"$HOME/storage\" 2>/dev/null; termux-setup-storage 2>/dev/null; "
+                + "f=\"$HOME/storage/downloads/" + EXPORT_SUBDIR
                 + "/setup.sh\"; if [ -d \"$HOME/storage/downloads\" ]; then "
                 + "[ -f \"$f\" ] && cp \"$f\" \"$HOME/setup.sh\" && bash \"$HOME/setup.sh\" "
                 + "|| echo 'SETUP_SH_MISSING: 先在答题宝点「智能检测引导」生成 setup.sh，再回 Termux 粘这一行'; "
