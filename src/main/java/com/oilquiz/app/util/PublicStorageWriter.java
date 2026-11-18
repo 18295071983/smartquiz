@@ -102,36 +102,34 @@ public final class PublicStorageWriter {
      * 仍是第一份旧文件（或第一个目录）。<br>
      * 这里把 File 实体（文件/目录）和 MediaStore 的 {@code name} 及 {@code name (n)} 副本都清掉。</p>
      */
+    /**
+     * 只清理"同名目录"（用 File API 改名成 .dirbak-时间戳，不删）——2026-11-18 修正：
+     * 之前的版本会删 MediaStore 行，MIUI 的回收站会把**整个父目录**搬进 .trashed-*，
+     * 导致 Termux 侧文件"消失"（真机踩到：termux_env 整个被回收）。
+     * 正常覆盖写已经改成"复用已有 URI 截断写"，不再需要删行。
+     */
     public static void cleanName(Context ctx, String sub, String name) {
         if (ctx == null || name == null) return;
-        // ① File 实体（有"所有文件访问"时 File API 才删得动，删不动就交给 MediaStore 行删除）
+        // 只处理"同名目录"：改名让位，不删任何东西（MIUI 回收站会连父目录一起搬走）
         try {
             File f = fileOf(sub, name);
-            if (f.exists()) {
-                if (f.isDirectory()) {
-                    deleteRecursively(f);
-                } else {
-                    //noinspection ResultOfMethodCallIgnored
-                    f.delete();
-                }
+            if (f.exists() && f.isDirectory()) {
+                File bak = new File(f.getParentFile(),
+                        name + ".dirbak-" + System.currentTimeMillis());
+                //noinspection ResultOfMethodCallIgnored
+                f.renameTo(bak);
             }
         } catch (Throwable ignored) {
         }
-        // ② MediaStore：精确同名 + "name (n)" 副本
-        try {
-            String relPath = ROOT_REL + "/" + sub + "/";
-            String relNoSlash = relPath.substring(0, relPath.length() - 1);
-            String sel = "(" + MediaStore.Downloads.DISPLAY_NAME + "=? OR "
-                    + MediaStore.Downloads.DISPLAY_NAME + " LIKE ?) AND ("
-                    + MediaStore.Downloads.RELATIVE_PATH + "=? OR "
-                    + MediaStore.Downloads.RELATIVE_PATH + "=?)";
-            String[] args = {name, name + " (%", relPath, relNoSlash};
-            int rows = ctx.getContentResolver().delete(
-                    MediaStore.Downloads.EXTERNAL_CONTENT_URI, sel, args);
-            if (rows > 0) Log.i(TAG, "清理同名残留 " + sub + "/" + name + " → " + rows + " 行");
-        } catch (Throwable t) {
-            Log.w(TAG, "清理同名残留失败(" + name + "): " + t.getMessage());
+    }
+
+    private static void copyStream(InputStream in, OutputStream os) throws java.io.IOException {
+        byte[] buf = new byte[262144];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            os.write(buf, 0, n);
         }
+        os.flush();
     }
 
     private static void deleteRecursively(File f) {
@@ -146,11 +144,34 @@ public final class PublicStorageWriter {
 
     private static String writeViaMediaStore(Context ctx, String sub, String name, String mime, InputStream in) {
         try {
-            cleanName(ctx, sub, name);
             String relPath = ROOT_REL + "/" + sub + "/";
             String mimeType = (mime == null || mime.isEmpty()) ? guessMime(name) : mime;
             ContentResolver cr = ctx.getContentResolver();
-            deleteViaMediaStore(cr, relPath, name);
+            // 2026-11-18：优先复用已有 URI 截断写，绝不删行——MIUI 对 MediaStore 删除会触发
+            // 回收站，把整个父目录搬走，Termux 侧就"文件不存在"了。
+            Uri existing = findUri(ctx, sub, name);
+            if (existing != null) {
+                try (OutputStream os = cr.openOutputStream(existing, "wt")) {
+                    if (os != null) {
+                        copyStream(in, os);
+                        Log.i(TAG, "MediaStore 覆盖写成功: " + relPath + name);
+                        return "内部存储/" + relPath + name;
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "覆盖写失败，改走新插入: " + t.getMessage());
+                }
+            }
+            // 同名目录占位：改名让位（不删，避免 MIUI 回收）
+            try {
+                File f = fileOf(sub, name);
+                if (f.exists() && f.isDirectory()) {
+                    File bak = new File(f.getParentFile(),
+                            name + ".dirbak-" + System.currentTimeMillis());
+                    //noinspection ResultOfMethodCallIgnored
+                    f.renameTo(bak);
+                }
+            } catch (Throwable ignored) {
+            }
             ContentValues v = new ContentValues();
             v.put(MediaStore.Downloads.DISPLAY_NAME, name);
             v.put(MediaStore.Downloads.MIME_TYPE, mimeType);
