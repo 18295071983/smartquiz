@@ -123,7 +123,66 @@ public class RemoteProfilesActivity extends Activity {
             list.addView(empty);
             return;
         }
+        // 2026-11-19：固定内置条目（无需配对、不可删除），点「切换」即用本机 DSH
+        list.addView(builtinRow(current));
         for (RemoteProfiles.Profile p : all) list.addView(row(p, p.url.equalsIgnoreCase(current)));
+    }
+
+    /** 固定内置连接：本机 DSH（127.0.0.1:8218 + 固定令牌），点击即切换，不写进可删列表。 */
+    private View builtinRow(String current) {
+        String url = "http://127.0.0.1:8218";
+        boolean isCurrent = current != null && current.toLowerCase().contains("127.0.0.1");
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        TextView name = new TextView(this);
+        name.setText("本机 DSH（内置）");
+        name.setTextSize(15);
+        name.setTextColor(0xFF222222);
+        TextView sub = new TextView(this);
+        sub.setText(url + " · 固定令牌");
+        sub.setTextSize(12);
+        sub.setTextColor(0xFF8A8A8A);
+        col.addView(name);
+        col.addView(sub);
+        row.addView(col, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView use = new TextView(this);
+        use.setText(isCurrent ? "当前" : "切换");
+        use.setTextSize(13);
+        use.setTextColor(isCurrent ? 0xFF8A8A8A : 0xFF2F5BD6);
+        use.setPadding(dp(10), dp(6), dp(10), dp(6));
+        if (!isCurrent) {
+            use.setOnClickListener(v -> {
+                RemoteDshTool.saveManualConfig(this, url,
+                        com.oilquiz.app.ai.dsh.EmbeddedDsh.PLUGIN_TOKEN);
+                RemoteDshTool.setPreferBuiltin(this, true);
+                RemoteDshTool.setUserDisconnected(this, true);
+                try {
+                    com.oilquiz.app.ai.tool.RemoteConnection.get(this).stop();
+                    stopService(new Intent(this, RemoteSyncService.class));
+                } catch (Throwable ignored) {
+                }
+                Toast.makeText(this, "已切到本机 DSH（内置）", Toast.LENGTH_SHORT).show();
+                finish();
+            });
+        }
+        row.addView(use);
+
+        View divider = new View(this);
+        divider.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(row);
+        box.addView(divider);
+        return box;
     }
 
     private View row(final RemoteProfiles.Profile p, boolean isCurrent) {
