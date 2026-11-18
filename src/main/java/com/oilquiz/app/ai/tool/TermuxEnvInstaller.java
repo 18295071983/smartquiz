@@ -736,6 +736,8 @@ public final class TermuxEnvInstaller {
                 for f in $STEPS; do
                   SRC=""
                   for c in /sdcard/Download/OilQuiz/termux_env/$f "$HOME_DIR/storage/downloads/OilQuiz/termux_env/$f"; do
+                    # 2026-11-18：同名目录会让 `bash setup.sh` 报 "Is a directory"；先清掉再找文件
+                    [ -d "$c" ] && rm -rf "$c" 2>/dev/null
                     [ -f "$c" ] && SRC="$c" && break
                   done
                   if [ -n "$SRC" ]; then cp "$SRC" "$STEP_DIR/$f" && chmod 700 "$STEP_DIR/$f"; fi

@@ -92,8 +92,61 @@ public final class PublicStorageWriter {
         return writeViaMediaStore(ctx, sub, name, mime, in);
     }
 
+    /**
+     * 2026-11-18：清理同名残留，避免"同名目录/旧副本"让脚本执行失败。
+     *
+     * <p>真机踩到两种：<br>
+     * ① 公共目录里出现**同名目录**（MediaStore/文件管理器误建）→ {@code bash setup.sh} 报
+     * Is a directory；<br>
+     * ② 旧记录删不掉时 MediaStore 会自动改名成 {@code setup.sh (1)}…(n)，Termux 读到的
+     * 仍是第一份旧文件（或第一个目录）。<br>
+     * 这里把 File 实体（文件/目录）和 MediaStore 的 {@code name} 及 {@code name (n)} 副本都清掉。</p>
+     */
+    public static void cleanName(Context ctx, String sub, String name) {
+        if (ctx == null || name == null) return;
+        // ① File 实体（有"所有文件访问"时 File API 才删得动，删不动就交给 MediaStore 行删除）
+        try {
+            File f = fileOf(sub, name);
+            if (f.exists()) {
+                if (f.isDirectory()) {
+                    deleteRecursively(f);
+                } else {
+                    //noinspection ResultOfMethodCallIgnored
+                    f.delete();
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        // ② MediaStore：精确同名 + "name (n)" 副本
+        try {
+            String relPath = ROOT_REL + "/" + sub + "/";
+            String relNoSlash = relPath.substring(0, relPath.length() - 1);
+            String sel = "(" + MediaStore.Downloads.DISPLAY_NAME + "=? OR "
+                    + MediaStore.Downloads.DISPLAY_NAME + " LIKE ?) AND ("
+                    + MediaStore.Downloads.RELATIVE_PATH + "=? OR "
+                    + MediaStore.Downloads.RELATIVE_PATH + "=?)";
+            String[] args = {name, name + " (%", relPath, relNoSlash};
+            int rows = ctx.getContentResolver().delete(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI, sel, args);
+            if (rows > 0) Log.i(TAG, "清理同名残留 " + sub + "/" + name + " → " + rows + " 行");
+        } catch (Throwable t) {
+            Log.w(TAG, "清理同名残留失败(" + name + "): " + t.getMessage());
+        }
+    }
+
+    private static void deleteRecursively(File f) {
+        try {
+            File[] kids = f.listFiles();
+            if (kids != null) for (File k : kids) deleteRecursively(k);
+            //noinspection ResultOfMethodCallIgnored
+            f.delete();
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static String writeViaMediaStore(Context ctx, String sub, String name, String mime, InputStream in) {
         try {
+            cleanName(ctx, sub, name);
             String relPath = ROOT_REL + "/" + sub + "/";
             String mimeType = (mime == null || mime.isEmpty()) ? guessMime(name) : mime;
             ContentResolver cr = ctx.getContentResolver();
@@ -129,6 +182,7 @@ public final class PublicStorageWriter {
 
     private static String writeViaFile(Context ctx, String sub, String name, InputStream in) {
         try {
+            cleanName(ctx, sub, name);
             File dir = subDir(sub);
             if (!dir.exists() && !dir.mkdirs()) {
                 Log.w(TAG, "创建目录失败: " + dir.getAbsolutePath());

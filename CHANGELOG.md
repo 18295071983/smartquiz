@@ -1,5 +1,15 @@
 # 变更日志
 
+## [2026-11-18] fix(storage): 同名目录/重复副本导致脚本跑不起来
+
+- **现象**：公共目录里若存在**同名目录** `setup.sh/`，`bash setup.sh` 直接报 Is a directory；
+  旧记录删不掉时 MediaStore 还会生成 `setup.sh (1)…(n)`，Termux 读到的可能是旧副本。
+- **写入前清理**：`PublicStorageWriter.cleanName()` 在每次写文件前清掉 File 实体（含目录，
+  递归删）和 MediaStore 里 `name` 与 `name (n)` 的副本（限定在 `Download/OilQuiz/<sub>/`）。
+  `writeBytes/writeStream/writeViaFile` 都先走这一步。
+- **runner 兜底**：`setup.sh` 拷贝步骤脚本前，遇到同名目录先 `rm -rf` 再找文件。
+- 实测：手工把 `setup.sh` 建成目录后重跑导出 → 目录被清掉、正确写成 2879 字节文件，无副本残留。
+
 ## [2026-11-18] fix(termux): 全新安装向导审计——修误判"就绪"、合并两次粘贴、真验容器
 
 - **误判就绪**：向导用 `channelState` 文案等值比较（`"不可用 ✗".equals(...)`），文案一带原因就永远
