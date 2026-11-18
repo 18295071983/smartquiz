@@ -49,6 +49,20 @@ public class DshService extends Service {
         new Thread(() -> {
             String msg = EmbeddedDsh.start(this);
             Log.i(TAG, "start: " + msg);
+            if (msg != null && msg.startsWith("DSH 已启动")) {
+                // 内置就绪 → 自动把 App 模型切到本机代理（否则还连着电脑地址会发不出消息）
+                for (int i = 0; i < 20; i++) {
+                    String r = com.oilquiz.app.ai.tool.LocalDshManager.ensureBuiltinModel(this);
+                    if (r.startsWith("已切换") || r.startsWith("已创建")) {
+                        Log.i(TAG, "model: " + r);
+                        break;
+                    }
+                    try {
+                        Thread.sleep(1500);
+                    } catch (InterruptedException ignored) {
+                    }
+                }
+            }
         }, "dsh-service-start").start();
     }
 

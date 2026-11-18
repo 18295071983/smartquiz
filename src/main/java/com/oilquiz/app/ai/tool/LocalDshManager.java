@@ -59,6 +59,39 @@ public final class LocalDshManager {
     }
 
     /**
+     * 2026-11-19：内置 DSH 就绪后，自动把 App 的模型切到本机代理。
+     *
+     * <p>用户之前配的是「DeepSeek（电脑账号）→ http://192.168.1.2:8218」，
+     * 内置模式下它连不上电脑就会"发不了消息"。这里创建/复用一条
+     * {@code http://127.0.0.1:8218/v2/llm} 的模型并设为当前。</p>
+     */
+    public static String ensureBuiltinModel(Context c) {
+        try {
+            String tok = pluginToken(c);
+            if (tok == null || tok.isEmpty()) return "还没拿到内置令牌";
+            com.oilquiz.app.ai.model.OnlineModelManager m =
+                    com.oilquiz.app.ai.model.OnlineModelManager.getInstance(c);
+            String target = "http://127.0.0.1:8218/v2/llm";
+            for (com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig cfg : m.getModelList()) {
+                if (cfg.apiUrl != null && cfg.apiUrl.contains("127.0.0.1:8218")) {
+                    cfg.apiKey = tok;
+                    cfg.enabled = true;
+                    m.save();
+                    m.setActiveModel(cfg.id);
+                    return "已切换到本机模型：" + cfg.name;
+                }
+            }
+            com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig cfg =
+                    m.addModel("本机 DSH（内置）", target, "deepseek-chat", tok);
+            m.save();
+            m.setActiveModel(cfg.id);
+            return "已创建并切换到本机模型";
+        } catch (Throwable t) {
+            return "切换模型失败：" + t.getMessage();
+        }
+    }
+
+    /**
      * 2026-11-19：本机 DSH 插件的访问令牌。
      *
      * <p>插件首次启动会生成 32 位 hex 令牌并存进容器里的 {@code /root/plugin/.token}；

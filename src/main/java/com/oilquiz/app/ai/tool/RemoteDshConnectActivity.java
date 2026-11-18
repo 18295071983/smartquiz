@@ -1204,13 +1204,23 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
 
     private void bindActions() {
         connectBtn.setOnClickListener(v -> {
+            // 2026-11-19：内置模式下「连接」= 启动/检查内置 DSH，不再跳去连电脑
+            if (RemoteDshTool.isPreferBuiltin(this)) {
+                toast("正在启动内置 DSH…");
+                com.oilquiz.app.ai.dsh.DshService.start(this);
+                android.view.View st = findViewById(R.id.local_dsh_status);
+                if (st != null) {
+                    st.postDelayed(() -> refreshLocalDsh((android.widget.TextView) st), 3000);
+                    st.postDelayed(() -> refreshLocalDsh((android.widget.TextView) st), 12000);
+                }
+                return;
+            }
             if (!RemoteDshTool.isConfigured(this)) {
                 toast("还没配对过电脑：先「扫码配对」或在下面手动填写");
                 return;
             }
-            // 用户明确点「连接」→ 清掉"主动断开"，并切回电脑模式
+            // 用户明确点「连接」（电脑模式）→ 清掉"主动断开"
             RemoteDshTool.setUserDisconnected(this, false);
-            RemoteDshTool.setPreferBuiltin(this, false);
             probe(true, true);
         });
         // 「输入配对码」按钮：扫码不方便时的备选（6 位数字，一次性）
