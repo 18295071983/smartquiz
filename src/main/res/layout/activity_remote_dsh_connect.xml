@@ -65,6 +65,54 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- 2026-11-18：允许电脑驱动手机 Agent（agent_ask；默认关，需前台聊天页） -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="@dimen/elev_4"
+            app:cardCornerRadius="@dimen/radius_16"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="@dimen/space_16">
+
+                <LinearLayout
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="允许电脑驱动手机 Agent"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="?attr/colorControlText"/>
+
+                    <TextView
+                        android:id="@+id/agent_drive_hint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_4"
+                        android:text="开启后，已配对的电脑可以让手机 Agent 跑一句话（走手机自己的模型和工具，需聊天页在前台）；默认关闭。"
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorControlTextHint"/>
+                </LinearLayout>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_agent_drive"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_12"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- 连接配置列表（2026-11-14）：固定容器，代码只往里填 chips。
              不再用"动态插到某个父容器"的做法——那条路依赖布局结构，真机上失配过三次。 -->
         <!-- 连接管理入口（2026-11-14）：静态按钮，点开独立页面看/切换所有已存连接。

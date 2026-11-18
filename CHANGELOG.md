@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-11-18] feat(remote): 电脑驱动手机 agent（agent_ask，走手机自己的 prompt/工具/模型）
+
+- 手机 `RemoteCommandExecutor` 新增 `agent_ask`：把电脑的 prompt 塞进聊天页的发送管线
+  （`AIChatActivity.submitExternalPrompt`，强制走本地 agent，不转发给电脑），
+  等这一轮结束把最终文本回传；`PhoneAgentBridge` 做单次往返（并发返回 busy）。
+- 开关：远程连接页新增「允许电脑驱动手机 Agent」，默认关；要求聊天页在前台；
+  插件总开关关闭时该开关也禁用。
+- 插件：`POST /v2/phone/agent_ask {prompt}` 与 `phone_cli "agent ask <prompt>"`。
+- 实测：`{"ok":true,"output":"我是你的手机 App 里的 AI 助手…"}`（手机本地/在线模型自行生成）。
+- 至此电脑能力：只读 CLI（`ui dump/tools list`）→ 直接调手机工具（`tool_call`，白名单+确认）
+  → 驱动手机 agent（`agent_ask`）。
+
 ## [2026-11-18] feat(remote): 电脑直接调手机工具 tool_call（白名单 + 手机确认）
 
 - 手机 `RemoteCommandExecutor` 新增 `tool_call`：默认白名单 + 每次 `AppDialog` 确认

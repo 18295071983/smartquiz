@@ -347,6 +347,8 @@ public class AIChatActivity extends BaseActivity {
     private OnlineModelManager onlineModelManager;
 
     private volatile boolean isGenerating = false;
+    /** 2026-11-18：agent_ask 外部 prompt 期间强制走本地 agent，不转发给电脑 */
+    private volatile boolean externalPromptPending = false;
     private volatile boolean isDirectStreaming = false;
 
     // ---- FOCUS-COLLAPSE(2026-11-13)：旧轮 AI 回复折叠（纯渲染态，历史原样不动）----
@@ -4232,13 +4234,27 @@ public class AIChatActivity extends BaseActivity {
                 .show();
     }
 
+    /** 2026-11-18：电脑驱动手机 agent 的入口——把 prompt 当作用户输入，强制走本地 agent。 */
+    public void submitExternalPrompt(String prompt) {
+        try {
+            if (inputMessage == null) return;
+            externalPromptPending = true;
+            inputMessage.setText(prompt);
+            sendMessage();
+        } catch (Throwable ignored) {
+        } finally {
+            externalPromptPending = false;
+        }
+    }
+
     private void sendMessage() {
         // ==== 连接即遥控（2026-11-12）：只要连着电脑，聊天消息就发给电脑 ====
         // 有「跟随会话」→ 写进桌面那条对话（sync_send，电脑端同屏可见）；
         // 还没选跟随会话 → 提示去「远程连接（电脑）」选一条，不偷偷新建会话。
         // 手机本地模型只在未连接、或带附件（远程协议暂不支持附件）时使用。
         // 这样不再依赖已失效的「直连/同步/自动」模式开关（getMode 恒为 auto）。
-        if (com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this)
+        if (!externalPromptPending
+                && com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isActive(this)
                 && !hasChatAttachments()) {
             String remoteText = inputMessage.getText().toString().trim();
             if (!remoteText.isEmpty()) {
@@ -6902,6 +6918,10 @@ public class AIChatActivity extends BaseActivity {
 
             @Override
             public void onGenerationError(String messageId, String error) {
+                try {
+                    com.oilquiz.app.ai.tool.PhoneAgentBridge.onError(error);
+                } catch (Throwable ignored) {
+                }
                 runOnUiThread(() -> {
                     if (uiDetached) {
                         // UI 已分离（退出/重建）：只把已生成的部分内容落盘，不更新界面
@@ -7486,6 +7506,11 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void completeGeneration(String fullText, int tokenCount, long chatStartTime) {
+        // 2026-11-18：电脑驱动手机 agent（agent_ask）——把这一轮最终文本交给等待方
+        try {
+            com.oilquiz.app.ai.tool.PhoneAgentBridge.onReply(fullText);
+        } catch (Throwable ignored) {
+        }
         // 通知 OutputRouter 流式完成
         if (outputRouter != null) {
             outputRouter.complete();

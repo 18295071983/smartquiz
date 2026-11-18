@@ -1435,6 +1435,31 @@ function applyInner(ctx, config) {
     return { ok: false, error: 'timeout', cmd_id: id };
   };
 
+  /**
+   * 2026-11-18：电脑驱动手机 agent（agent_ask）。
+   * 手机端会检查「允许电脑驱动 Agent」开关；默认关，且要求聊天页在前台。
+   */
+  const execPhoneAgent = async (prompt, timeoutMs = 130000) => {
+    const text = String(prompt ?? '').trim();
+    if (!text) return { ok: false, error: 'empty_prompt' };
+    try { pruneCommands(); } catch { /* 忽略 */ }
+    const id = randomBytes(8).toString('hex');
+    cmdQueue.set(id, {
+      id, tool: 'agent_ask', args: { prompt: text },
+      state: 'queued', createdAt: Date.now(), result: null,
+    });
+    const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 130000);
+    while (Date.now() < deadline) {
+      const c = cmdQueue.get(id);
+      if (c && c.state === 'done') {
+        return { ok: c.ok !== false, cmd_id: id, output: String(c.result ?? '') };
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    cmdQueue.delete(id);
+    return { ok: false, error: 'timeout', cmd_id: id };
+  };
+
   const CMD_ALLOW = new Set(['ui_component', 'toast', 'dialog', 'notification', 'reminder']);
   const CMD_MAX = 50;
   const CMD_TTL_MS = 10 * 60 * 1000;
@@ -3154,6 +3179,12 @@ function presetSvcOf(ctx) {
             try {
               const cmdText = String(args?.command ?? '').trim();
               // 2026-11-18：工具调用走单独通道（手机端要弹确认，不能当只读 CLI 跑）
+              const ask = cmdText.match(/^agent\s+ask\s+([\s\S]+)$/);
+              if (ask) {
+                const ar = await execPhoneAgent(ask[1].trim());
+                if (!ar.ok) return '未执行：' + (ar.error || 'unknown');
+                return ar.output;
+              }
               const call = cmdText.match(/^tools\s+call\s+(\S+)\s*([\s\S]*)$/);
               if (call) {
                 let callArgs = {};
@@ -3901,6 +3932,22 @@ function presetSvcOf(ctx) {
       return sendJson(res, 200, { ok: true, v: 2, count: rows.length, total: PHONE_EVENTS.length, events: rows });
     } catch (e) {
       return sendJson(res, 500, { ok: false, error: 'events_failed', detail: String(e?.message ?? e) });
+    }
+  });
+
+  /** POST /v2/phone/agent_ask {prompt,timeout_ms} —— 电脑让手机 agent 跑一句话。 */
+  route('exact', '/v2/phone/agent_ask', async (req, res) => {
+    try {
+      if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+        return sendJson(res, 405, { ok: false, error: 'use_post' });
+      }
+      let body = {};
+      try { body = JSON.parse((await readBody(req)) || '{}'); } catch { body = {}; }
+      const r = await execPhoneAgent(body.prompt ?? body.text, body.timeout_ms);
+      return sendJson(res, r.ok ? 200 : (r.error === 'timeout' ? 504 : 409), { ok: r.ok, v: 2, ...r });
+    } catch (e) {
+      return sendJson(res, 500, { ok: false, error: 'agent_ask_failed', detail: String(e?.message ?? e) });
     }
   });
 

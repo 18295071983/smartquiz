@@ -156,6 +156,16 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             });
         }
 
+        // 2026-11-18：允许电脑驱动手机 Agent（agent_ask），默认关
+        com.google.android.material.switchmaterial.SwitchMaterial agentDriveSwitch =
+                findViewById(R.id.switch_agent_drive);
+        if (agentDriveSwitch != null) {
+            agentDriveSwitch.setChecked(RemoteDshTool.isAgentDriveEnabled(this));
+            agentDriveSwitch.setOnCheckedChangeListener((btn, checked) -> {
+                RemoteDshTool.setAgentDriveEnabled(this, checked);
+                toast(checked ? "电脑可以让手机 Agent 跑一句话了" : "电脑不能再驱动手机 Agent");
+            });
+        }
         // 插件总开关（2026-11-18）：手机端默认关闭；关闭时禁用本页所有操作按钮并断开连接
         com.google.android.material.switchmaterial.SwitchMaterial pluginSwitch =
                 findViewById(R.id.switch_remote_plugin);
@@ -1665,6 +1675,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 v.setAlpha(on ? 1f : 0.5f);
             }
         }
+        android.view.View agentDrive = findViewById(R.id.switch_agent_drive);
+        if (agentDrive != null) agentDrive.setEnabled(on);
         android.view.View hint = findViewById(R.id.plugin_switch_hint);
         if (hint instanceof android.widget.TextView) {
             ((android.widget.TextView) hint).setText(on

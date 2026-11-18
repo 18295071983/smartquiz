@@ -160,6 +160,38 @@ public final class RemoteCommandExecutor {
                     return "tool_call failed: " + t;
                 }
             }
+            case "agent_ask": {
+                // 2026-11-18：电脑驱动手机 agent（把 prompt 塞进手机聊天页的发送管线，
+                // 走手机自己的系统提示/工具/模型，等这一轮结束回传最终文本）。
+                String prompt = str(args == null ? null
+                        : (args.get("prompt") != null ? args.get("prompt") : args.get("text"))).trim();
+                if (prompt.isEmpty()) return "agent_ask: prompt required";
+                if (!RemoteDshTool.isAgentDriveEnabled(ctx)) {
+                    return "blocked: 手机端未开启「允许电脑驱动 Agent」（远程连接页可开）";
+                }
+                android.app.Activity act = com.oilquiz.app.SmartQuizApplication.getCurrentActivity();
+                if (!(act instanceof com.oilquiz.app.ui.activity.AIChatActivity)) {
+                    return "denied: 需要手机聊天页在前台（当前不是）";
+                }
+                if (!PhoneAgentBridge.begin()) return "busy: 已有一条 agent 请求在跑";
+                try {
+                    final com.oilquiz.app.ui.activity.AIChatActivity chat =
+                            (com.oilquiz.app.ui.activity.AIChatActivity) act;
+                    chat.runOnUiThread(() -> chat.submitExternalPrompt(prompt));
+                    String reply = PhoneAgentBridge.await(120_000);
+                    if (reply == null) {
+                        String err = PhoneAgentBridge.lastError();
+                        return err != null ? "agent 失败: " + err
+                                : "timeout: 手机 agent 120 秒内没有完成";
+                    }
+                    return reply;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return "agent_ask: interrupted";
+                } finally {
+                    PhoneAgentBridge.finish();
+                }
+            }
             case "reminder":
             default:
                 return notify(ctx, title.isEmpty() ? "来自电脑端" : title, text, cmdId, args == null ? null : args.get("actions"));

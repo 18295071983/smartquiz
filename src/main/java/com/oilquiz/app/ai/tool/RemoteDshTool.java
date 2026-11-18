@@ -1896,6 +1896,17 @@ public class RemoteDshTool implements AITool {
                 .getBoolean(KEY_PLUGIN_ENABLED, false);
     }
 
+    /** 2026-11-18：是否允许电脑驱动手机 agent（agent_ask），默认关。 */
+    public static boolean isAgentDriveEnabled(Context c) {
+        return c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
+                .getBoolean("remote_agent_drive", false);
+    }
+
+    public static void setAgentDriveEnabled(Context c, boolean enabled) {
+        c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
+                .edit().putBoolean("remote_agent_drive", enabled).apply();
+    }
+
     public static void setPluginEnabled(Context c, boolean enabled) {
         c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
                 .edit().putBoolean(KEY_PLUGIN_ENABLED, enabled).apply();
