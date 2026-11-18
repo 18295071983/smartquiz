@@ -88,8 +88,19 @@ public class DshLoginActivity extends AppCompatActivity {
                     conn.setConnectTimeout(2000);
                     conn.setReadTimeout(2500);
                     conn.setRequestProperty("Authorization", "Bearer " + tok);
-                    if (conn.getResponseCode() == 200) {
-                        signed = true;
+                    int code = conn.getResponseCode();
+                    if (code == 200) {
+                        // 2026-11-19：HTTP 200 不代表已登录——插件对未登录也返回 200，
+                        // body 里是 signed_in:false。必须解析 body，否则一打开就误报"已登录"。
+                        java.io.InputStream in = conn.getInputStream();
+                        byte[] buf = new byte[2048];
+                        int n = in.read(buf);
+                        String body = n > 0
+                                ? new String(buf, 0, n, java.nio.charset.StandardCharsets.UTF_8)
+                                : "";
+                        signed = java.util.regex.Pattern
+                                .compile("\"signed_in\"\\s*:\\s*true")
+                                .matcher(body).find();
                     }
                 }
             } catch (Throwable ignored) {
