@@ -192,6 +192,11 @@ public class AILogger {
      * @param t 异常或错误对象
      */
     public static void e(String tag, String message, Throwable t) {
+        // 2026-11-18：错误摘要回传电脑（60s 内同一条去重、不含堆栈/正文）
+        try {
+            com.oilquiz.app.ai.tool.PhoneEventReporter.error(tag, message);
+        } catch (Throwable ignored) {
+        }
         String logMessage = formatLogMessage("ERROR", tag, message);
         if (t != null) {
             logMessage += "\nError: " + t.getMessage();

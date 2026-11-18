@@ -1,5 +1,19 @@
 # 变更日志
 
+## [2026-11-18] feat(remote): 手机本地事件回传 phone.event.*（工具轨迹 / agent 状态 / 错误）
+
+- **手机**：新增 `PhoneEventReporter`——队列（上限 50）+ 批量 POST 到插件 `/session`
+  （`action=phone_event`）；只在插件开关打开时发送，关闭即清空队列；只发结构化摘要
+  （工具名/成败/耗时/错误前 120 字），不含聊天正文、文件内容、剪贴板。
+- **挂点**：`AIToolManager.executeToolInner`（工具轨迹）、`AIChatActivity.begin/endGeneration`
+  （agent thinking/done）、`AILogger.e`（错误摘要，60s 内同条去重）。
+- **插件**：`PHONE_EVENTS` 环形缓冲（300 条）+ `GET /v2/phone/events?since=&limit=`；
+  面板新增「📡 手机事件」段（最近 8 条，4 秒刷新）。
+- **踩坑**：手机原有命令通道是 `/session`（不是 `/v2/session`，后者是 prompt 通道，
+  会把 `phone_event` 当对话去跑 agent）；已按 `/session` 对齐。
+- **实测**：`--es mode emit_event` → 插件 `accepted=2`，`/v2/phone/events` 返回
+  `debug_event`（tool）+ `thinking`（agent）。
+
 ## [2026-11-18] feat(llm): 手机原生登录 DeepSeek 账号（B 方案；电脑端独立鉴权，不互通）
 
 - **手机**：新增 `DeepSeekAccountClient`——复用 MCP OAuth 的 loopback 回调/PKCE（S256），

@@ -8327,6 +8327,10 @@ public class AIChatActivity extends BaseActivity {
 
     private void beginGeneration() {
         isGenerating = true;
+        try {
+            com.oilquiz.app.ai.tool.PhoneEventReporter.agent("thinking", 0);
+        } catch (Throwable ignored) {
+        }
         isDirectStreaming = true;
         startGenerationTicker();
         totalTokensGenerated = 0;
@@ -8425,6 +8429,10 @@ public class AIChatActivity extends BaseActivity {
 
     private void endGeneration() {
         isGenerating = false;
+        try {
+            com.oilquiz.app.ai.tool.PhoneEventReporter.agent("done", 0);
+        } catch (Throwable ignored) {
+        }
         isDirectStreaming = false;
         // 一轮结束才裁窗口：这是列表"只在尾部增长"的唯一确定时机，从头部裁不会打断阅读
         trimRenderedWindow();

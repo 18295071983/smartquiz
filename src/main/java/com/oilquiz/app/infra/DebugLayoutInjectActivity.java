@@ -288,6 +288,22 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 手机事件回传自检：--es mode emit_event
+        if ("emit_event".equals(getIntent().getStringExtra("mode"))) {
+            try {
+                com.oilquiz.app.ai.tool.PhoneEventReporter.tool(
+                        "debug_event", true, 12, null);
+                com.oilquiz.app.ai.tool.PhoneEventReporter.agent("thinking", 1);
+                Log.i(TAG, "EMIT_EVENT=done");
+            } catch (Throwable t) {
+                Log.e(TAG, "emit_event 失败: " + t.getMessage(), t);
+            }
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (!isFinishing()) finish();
+            }, 8000);
+            return;
+        }
+
         // 聊天页自检（页面不导出，用调试壳拉起）：--es mode chat_page
         if ("chat_page".equals(getIntent().getStringExtra("mode"))) {
             try {

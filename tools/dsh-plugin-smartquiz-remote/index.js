@@ -1317,6 +1317,8 @@ function applyInner(ctx, config) {
    * 泛洪保护：最多 50 条、10 分钟过期；执行结果回传后再由 PC 读取。
    */
   const cmdQueue = new Map();
+  /** 2026-11-18：手机本地事件环形缓冲（phone.event.*），/v2/phone/events 读它。 */
+  const PHONE_EVENTS = [];
   /**
    * 反向指令白名单（2026-11-12 放开并落地）：
    * 电脑端只能让手机做"纯 UI / 轻状态"的事，绝不碰文件、命令、权限。
@@ -3832,6 +3834,28 @@ function presetSvcOf(ctx) {
       });
     } catch (e) {
       return sendJson(res, 200, { ok: true, v: 2, signed_in: false, detail: String(e?.message ?? e) });
+    }
+  });
+
+  /**
+   * GET /v2/phone/events?since=&limit= —— 手机本地事件（工具轨迹/agent 状态/错误摘要）。
+   * 数据源是内存环形缓冲 PHONE_EVENTS（由 /v2/session 的 phone_event 写入）。
+   */
+  route('exact', '/v2/phone/events', (req, res) => {
+    try {
+      if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      let since = 0;
+      let limit = 50;
+      try {
+        const u = new URL(req.url ?? '/v2/phone/events', 'http://dsh.invalid');
+        since = Number(u.searchParams.get('since') || 0) || 0;
+        limit = Number(u.searchParams.get('limit') || 50) || 50;
+      } catch { /* 默认值 */ }
+      limit = Math.max(1, Math.min(200, limit));
+      const rows = PHONE_EVENTS.filter((e) => (Number(e.ts) || 0) > since).slice(-limit);
+      return sendJson(res, 200, { ok: true, v: 2, count: rows.length, total: PHONE_EVENTS.length, events: rows });
+    } catch (e) {
+      return sendJson(res, 500, { ok: false, error: 'events_failed', detail: String(e?.message ?? e) });
     }
   });
 
@@ -8404,6 +8428,24 @@ function presetSvcOf(ctx) {
             items: q.map(publicItem) });
         }
         return sendJson(res, 400, { ok: false, action, error: 'unknown op: ' + op, ops: ['list', 'cancel', 'update'] });
+      }
+      if (action === 'phone_event') {
+        // 2026-11-18：手机本地事件回传（工具轨迹/agent 状态/错误摘要），环形缓冲给电脑面板。
+        const list = Array.isArray(body.events) ? body.events : [];
+        let n = 0;
+        for (const ev of list.slice(0, 50)) {
+          if (!ev || typeof ev !== 'object') continue;
+          PHONE_EVENTS.push({
+            type: String(ev.type ?? '').slice(0, 24),
+            ts: Number(ev.ts) || Date.now(),
+            data: ev.data && typeof ev.data === 'object' ? ev.data : {},
+            platform: String(body.platform ?? 'android').slice(0, 24),
+            app_version: String(body.app_version ?? '').slice(0, 32),
+          });
+          n++;
+        }
+        if (PHONE_EVENTS.length > 300) PHONE_EVENTS.splice(0, PHONE_EVENTS.length - 300);
+        return sendJson(res, 200, { ok: true, action, accepted: n, total: PHONE_EVENTS.length });
       }
       if (action === 'cmd_poll') {
         // 手机端轮询反向指令（2026-11-12 接线）：契约与 App 侧 RemoteDshTool.pollCommands 对齐。

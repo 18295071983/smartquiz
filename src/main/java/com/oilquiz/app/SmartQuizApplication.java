@@ -142,6 +142,8 @@ public class SmartQuizApplication extends Application {
         applyThemeMode();
         super.onCreate();
         instance = this;
+        // 2026-11-18：手机本地事件回传（phone.event.*），仅插件开关打开时真的发
+        com.oilquiz.app.ai.tool.PhoneEventReporter.init(this);
 
         // 死亡归因基座（2026-10-25）：先留存上一次启动代次，再写本次；启动主线程卡死哨兵。
         // 越早在 onCreate 落 BOOT_ID，越好——启动阶段的主线程卡死/崩溃也要能被归因。

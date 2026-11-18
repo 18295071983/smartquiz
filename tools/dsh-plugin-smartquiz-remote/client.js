@@ -105,6 +105,7 @@ window.__ModuleLoader__.load({
       // 2026-11-18：phone_ui / 插槽面板 —— 电脑端也能看到手机插槽并推送/移除
       const [slots, setSlots] = React.useState([]);
       const [conns, setConns] = React.useState([]);
+      const [phoneEvents, setPhoneEvents] = React.useState([]);
       const [formKind, setFormKind] = React.useState('slot');
       const [formId, setFormId] = React.useState('phone_ui');
       const [formTitle, setFormTitle] = React.useState('');
@@ -192,6 +193,24 @@ window.__ModuleLoader__.load({
           .then((j) => setConns(j && Array.isArray(j.connections) ? j.connections : []))
           .catch(() => setConns([]));
       }, []);
+      // 2026-11-18：手机本地事件（工具轨迹/agent 状态/错误摘要）
+      const loadPhoneEvents = React.useCallback(() => {
+        fetch('/v2/phone/events?limit=30', { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => setPhoneEvents(j && Array.isArray(j.events) ? j.events : []))
+          .catch(() => setPhoneEvents([]));
+      }, []);
+      const summaryOfEvent = (e) => {
+        const d = (e && e.data) || {};
+        if (!e) return '';
+        if (e.type === 'tool') {
+          return (d.name || '?') + (d.ok === false ? ' 失败' : ' ok') + ' ' + (d.ms || 0) + 'ms'
+            + (d.error ? ' · ' + String(d.error).slice(0, 60) : '');
+        }
+        if (e.type === 'agent') return 'agent ' + (d.state || '') + (d.round ? ' round ' + d.round : '');
+        if (e.type === 'error') return (d.where || '') + ': ' + String(d.message || '').slice(0, 80);
+        return JSON.stringify(d).slice(0, 80);
+      };
 
       /** 推送到手机 / 移除插槽：slot 走 ui.slot，toast/notification 走 ui.notify */
       const pushPhoneUi = (remove, onlyId) => {
@@ -298,9 +317,10 @@ window.__ModuleLoader__.load({
         if (!open) return undefined;
         loadSlots();
         loadConns();
-        const timer = setInterval(() => { loadSlots(); loadConns(); }, 4000);
+        loadPhoneEvents();
+        const timer = setInterval(() => { loadSlots(); loadConns(); loadPhoneEvents(); }, 4000);
         return () => clearInterval(timer);
-      }, [open, loadSlots, loadConns]);
+      }, [open, loadSlots, loadConns, loadPhoneEvents]);
       React.useEffect(() => {
         if (!open) return undefined;
         const timer = setInterval(load, 5000);
@@ -598,6 +618,36 @@ window.__ModuleLoader__.load({
               h('button', { style: smallBtn, onClick: () => pushPhoneUi(false) },
                 t('panel.slotPush', '推送'))),
             uiNote ? h('div', { style: Object.assign({}, label, { marginTop: 4 }) }, uiNote) : null),
+
+          // ---------- 手机本地事件（2026-11-18） ----------
+          h('div', { style: section },
+            h('div', { style: { fontWeight: 600 } },
+              '📡 ' + t('panel.eventsTitle', '手机事件'),
+              h('span', { style: label }, '  ' + (phoneEvents.length
+                ? t('panel.eventsCount', '最近') + ' ' + phoneEvents.length + ' 条'
+                : t('panel.eventsNone', '暂无')))),
+            h('div', { style: row },
+              h('button', { style: smallBtn, onClick: loadPhoneEvents }, t('panel.refresh', '刷新'))),
+            phoneEvents.length === 0
+              ? h('div', { style: label }, t('panel.eventsHint', '手机调用工具 / 生成 / 报错时会出现在这里'))
+              : phoneEvents.slice(-8).reverse().map((e, i) => h('div', {
+                key: i,
+                style: { display: 'flex', gap: 6, marginTop: 4, fontSize: 11.5, minWidth: 0 },
+              },
+                h('span', { style: Object.assign({}, label, { flex: '0 0 auto' }) },
+                  new Date(e.ts || Date.now()).toLocaleTimeString([], {
+                    hour: '2-digit', minute: '2-digit', second: '2-digit',
+                  })),
+                h('span', {
+                  style: { flex: '0 0 auto', color: e.type === 'error' ? '#d9534f' : undefined },
+                }, '[' + (e.type || '?') + ']'),
+                h('span', {
+                  style: {
+                    flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  },
+                  title: JSON.stringify(e.data || {}),
+                }, summaryOfEvent(e))))),
 
           // ---------- 客户端（手机） ----------
           h('div', { style: section },

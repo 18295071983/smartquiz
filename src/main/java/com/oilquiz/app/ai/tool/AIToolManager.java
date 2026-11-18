@@ -542,6 +542,7 @@ public class AIToolManager {
             return AIToolResult.fail(permissionError, additionalInfo);
         }
         
+        final long toolStartedAt = System.currentTimeMillis();
         try {
             // 参数类型归一：引导卡片等UI入口传的都是String，
             // 而工具内部多处用 (Integer)/(Boolean) 强转，不转换会 ClassCastException
@@ -558,8 +559,20 @@ public class AIToolManager {
             // 本地与在线两条链路都经本方法分发，故这是唯一接入点；
             // 开关 ai_chat_prefs.tool_auto_ui_bridge 默认开，任何异常都不影响工具结果本身。
             collectAutoUiCards(resolved, result, parameters);
+            // 2026-11-18：手机事件回传（工具轨迹）；插件未开/未配对时内部直接丢弃
+            try {
+                com.oilquiz.app.ai.tool.PhoneEventReporter.tool(
+                        resolved, result == null || result.isSuccess(),
+                        System.currentTimeMillis() - toolStartedAt, null);
+            } catch (Throwable ignored) {
+            }
             return result;
         } catch (Exception e) {
+            try {
+                com.oilquiz.app.ai.tool.PhoneEventReporter.tool(
+                        resolved, false, System.currentTimeMillis() - toolStartedAt, e.getMessage());
+            } catch (Throwable ignored) {
+            }
             Log.e(TAG, "Error executing tool: " + toolName, e);
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("toolName", toolName);
