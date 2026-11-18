@@ -110,6 +110,56 @@ public final class RemoteCommandExecutor {
                 // 后台没有 Activity：退化成通知，至少让人能看到
                 return notify(ctx, title.isEmpty() ? "来自电脑端" : title, text, cmdId, args == null ? null : args.get("actions"));
             case "notification":
+            case "tool_call": {
+                // 2026-11-18：电脑直接调手机工具（不经过手机 agent 引擎）。
+                // 安全：默认白名单 + 每次手机弹窗确认（30s 不响应=拒绝）。
+                String name = str(args == null ? null
+                        : (args.get("name") != null ? args.get("name") : args.get("tool"))).trim();
+                if (name.isEmpty()) return "tool_call: name required";
+                if (TOOL_CALL_DENY.contains(name)) {
+                    return "blocked: " + name + " 在手机端默认禁止远程调用";
+                }
+                if (!TOOL_CALL_ALLOW.contains(name)) {
+                    return "blocked: " + name + " 不在手机端远程调用白名单（如需放行请在手机上设置）";
+                }
+                Map<String, Object> toolArgs = new java.util.HashMap<>();
+                Object rawArgs = args == null ? null : args.get("args");
+                try {
+                    if (rawArgs instanceof Map) {
+                        for (Map.Entry<?, ?> e : ((Map<?, ?>) rawArgs).entrySet()) {
+                            toolArgs.put(String.valueOf(e.getKey()), e.getValue());
+                        }
+                    } else if (rawArgs instanceof String && !((String) rawArgs).trim().isEmpty()) {
+                        org.json.JSONObject o = new org.json.JSONObject((String) rawArgs);
+                        java.util.Iterator<String> it = o.keys();
+                        while (it.hasNext()) {
+                            String k = it.next();
+                            toolArgs.put(k, o.opt(k));
+                        }
+                    }
+                } catch (Throwable t) {
+                    return "tool_call: 参数不是合法 JSON: " + t;
+                }
+                android.util.Log.i("RemoteCommandExecutor", "tool_call name=" + name
+                        + " args=" + toolArgs + " allow=" + TOOL_CALL_ALLOW.contains(name));
+                Boolean allowed = confirmToolCall(ctx, name, toolArgs);
+                android.util.Log.i("RemoteCommandExecutor", "tool_call confirm=" + allowed);
+                if (allowed == null) return "denied: 手机端 30 秒内未确认（或当前没有前台页面）";
+                if (!allowed) return "denied by user";
+                long t0 = System.currentTimeMillis();
+                try {
+                    AIToolResult r = AIToolManager.getInstance(ctx).executeTool(name, toolArgs);
+                    long ms = System.currentTimeMillis() - t0;
+                    boolean ok = r == null || r.isSuccess();
+                    PhoneEventReporter.tool(name, ok, ms,
+                            ok ? null : (r == null ? "" : r.getErrorMessage()));
+                    String out = r == null ? "" : str(r.getResult());
+                    return out.length() > 200_000 ? out.substring(0, 200_000) + "\n…(truncated)" : out;
+                } catch (Throwable t) {
+                    PhoneEventReporter.tool(name, false, System.currentTimeMillis() - t0, String.valueOf(t));
+                    return "tool_call failed: " + t;
+                }
+            }
             case "reminder":
             default:
                 return notify(ctx, title.isEmpty() ? "来自电脑端" : title, text, cmdId, args == null ? null : args.get("actions"));
@@ -174,6 +224,61 @@ public final class RemoteCommandExecutor {
         } catch (Throwable t) {
             return "notify failed: " + t;
         }
+    }
+
+    /** 默认允许远程调用的工具（只读/展示类）；不在两表里的一律拒绝。 */
+    private static final java.util.Set<String> TOOL_CALL_ALLOW = new java.util.HashSet<>(
+            java.util.Arrays.asList(
+                    "ui_component", "screen_capture", "file_reader", "web_render", "time_date",
+                    "calculator", "text_tools", "unit_converter", "screen_watch", "ocr_recognize"));
+
+    /** 明确禁止（shell / 写文件 / 导出 / 应用操作等）。 */
+    private static final java.util.Set<String> TOOL_CALL_DENY = new java.util.HashSet<>(
+            java.util.Arrays.asList(
+                    "linux_shell", "python_execute", "file_generator", "export_apk", "app_operation",
+                    "system_resource", "system_connect", "git", "pip_install", "database"));
+
+    /**
+     * 电脑请求调用手机工具时的确认弹窗（主线程）。
+     *
+     * @return true=用户允许；false=拒绝；null=30 秒内无响应或没有前台页面
+     */
+    private static Boolean confirmToolCall(Context ctx, String name, Map<String, Object> args) {
+        android.app.Activity act = com.oilquiz.app.SmartQuizApplication.getCurrentActivity();
+        android.util.Log.i("RemoteCommandExecutor", "confirmToolCall act=" + act);
+        if (act == null) return null;
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicReference<Boolean> result =
+                new java.util.concurrent.atomic.AtomicReference<>(null);
+        String digest = args == null || args.isEmpty() ? "（无参数）" : args.toString();
+        if (digest.length() > 300) digest = digest.substring(0, 300) + "…";
+        final String msg = "工具：" + name + "\n参数：" + digest
+                + "\n\n电脑请求在你这台手机上执行这个工具，允许吗？";
+        act.runOnUiThread(() -> {
+            try {
+                com.oilquiz.app.ui.modal.AppDialog.builder(act)
+                        .setTitle("电脑请求调用手机工具")
+                        .setMessage(msg)
+                        .cancelable(false)
+                        .setPositiveButton("允许", (d, w) -> {
+                            result.set(true);
+                            latch.countDown();
+                        })
+                        .setNegativeButton("拒绝", (d, w) -> {
+                            result.set(false);
+                            latch.countDown();
+                        })
+                        .onDismiss(d -> latch.countDown())
+                        .show();
+            } catch (Throwable t) {
+                latch.countDown();
+            }
+        });
+        try {
+            latch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException ignored) {
+        }
+        return result.get();
     }
 
     private static String str(Object o) {

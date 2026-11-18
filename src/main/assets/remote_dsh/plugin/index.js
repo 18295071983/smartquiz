@@ -1405,6 +1405,36 @@ function applyInner(ctx, config) {
     }
   };
 
+  /**
+   * 2026-11-18：电脑直接调手机工具（不经过手机 agent 引擎）。
+   *
+   * <p><b>必须模块作用域</b>：/v2/phone/tool_call 路由在顶层注册，定义在 else 块里
+   * 会 ReferenceError（和 execPhoneCli 踩过同一个坑）。</p>
+   *
+   * <p>与 phone_cli 共用命令队列，tool=tool_call；手机端 RemoteCommandExecutor 负责
+   * 白名单 + 弹窗确认 + AIToolManager.executeTool。</p>
+   */
+  const execPhoneTool = async (name, toolArgs, timeoutMs = 40000) => {
+    const tool = String(name ?? '').trim();
+    if (!tool) return { ok: false, error: 'empty_name' };
+    try { pruneCommands(); } catch { /* 忽略 */ }
+    const id = randomBytes(8).toString('hex');
+    cmdQueue.set(id, {
+      id, tool: 'tool_call', args: { name: tool, args: toolArgs ?? {} },
+      state: 'queued', createdAt: Date.now(), result: null,
+    });
+    const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 40000);
+    while (Date.now() < deadline) {
+      const c = cmdQueue.get(id);
+      if (c && c.state === 'done') {
+        return { ok: c.ok !== false, cmd_id: id, output: String(c.result ?? '') };
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    cmdQueue.delete(id);
+    return { ok: false, error: 'timeout', cmd_id: id };
+  };
+
   const CMD_ALLOW = new Set(['ui_component', 'toast', 'dialog', 'notification', 'reminder']);
   const CMD_MAX = 50;
   const CMD_TTL_MS = 10 * 60 * 1000;
@@ -3111,9 +3141,10 @@ function presetSvcOf(ctx) {
       try {
         ctx.tools.register({
           name: 'phone_cli',
-          description: '在手机上执行只读 CLI（调试手机 App / agent / 工具系统）：'
-            + 'help、version、tools list、tools show <name>、ui dump、ui find。'
-            + '需要手机在线；结果原样返回（含 exit= 码）。',
+          description: '在手机上执行 CLI（调试手机 App / agent / 工具系统）：'
+            + 'help、version、tools list、tools show <name>、ui dump、ui find；'
+            + '以及 tools call <name> <json> —— 让手机执行一个工具（默认白名单 + 手机弹窗确认，'
+            + '执行后结果原样返回）。需要手机在线。',
           parameters: PHONE_CLI_PARAMS,
           output: {
             schema: { type: 'string' },
@@ -3121,6 +3152,20 @@ function presetSvcOf(ctx) {
           },
           execute: async (args) => {
             try {
+              const cmdText = String(args?.command ?? '').trim();
+              // 2026-11-18：工具调用走单独通道（手机端要弹确认，不能当只读 CLI 跑）
+              const call = cmdText.match(/^tools\s+call\s+(\S+)\s*([\s\S]*)$/);
+              if (call) {
+                let callArgs = {};
+                const rawJson = (call[2] || '').trim();
+                if (rawJson) {
+                  try { callArgs = JSON.parse(rawJson); }
+                  catch { return '参数不是合法 JSON：' + rawJson.slice(0, 120); }
+                }
+                const tr = await execPhoneTool(call[1], callArgs);
+                if (!tr.ok) return '未执行：' + (tr.error || 'unknown');
+                return tr.output;
+              }
               const r = await execPhoneCli(args?.command, args?.timeout_ms);
               if (!r.ok) {
                 if (r.error === 'no_device') return '手机未连接：先在手机「远程连接（电脑）」里打开插件开关并点连接';
@@ -3856,6 +3901,22 @@ function presetSvcOf(ctx) {
       return sendJson(res, 200, { ok: true, v: 2, count: rows.length, total: PHONE_EVENTS.length, events: rows });
     } catch (e) {
       return sendJson(res, 500, { ok: false, error: 'events_failed', detail: String(e?.message ?? e) });
+    }
+  });
+
+  /** POST /v2/phone/tool_call {name,args,timeout_ms} —— 电脑直接调手机工具（手机端确认后执行）。 */
+  route('exact', '/v2/phone/tool_call', async (req, res) => {
+    try {
+      if (!authOk(req) && !isLocal(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      if (String(req.method || 'GET').toUpperCase() !== 'POST') {
+        return sendJson(res, 405, { ok: false, error: 'use_post' });
+      }
+      let body = {};
+      try { body = JSON.parse((await readBody(req)) || '{}'); } catch { body = {}; }
+      const r = await execPhoneTool(body.name, body.args ?? {}, body.timeout_ms);
+      return sendJson(res, r.ok ? 200 : (r.error === 'timeout' ? 504 : 409), { ok: r.ok, v: 2, ...r });
+    } catch (e) {
+      return sendJson(res, 500, { ok: false, error: 'tool_call_failed', detail: String(e?.message ?? e) });
     }
   });
 

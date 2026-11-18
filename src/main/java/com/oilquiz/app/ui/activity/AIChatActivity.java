@@ -16966,6 +16966,26 @@ public class AIChatActivity extends BaseActivity {
             }
             return;
         }
+        // 2026-11-18：电脑调手机工具 / 驱动手机 agent —— 交给 RemoteCommandExecutor
+        // （它负责白名单、手机确认、AIToolManager 执行），不要落到下面的通用工具执行。
+        if ("tool_call".equals(tool) || "agent_ask".equals(tool)) {
+            String cmdResult;
+            boolean cmdOk = true;
+            try {
+                cmdResult = com.oilquiz.app.ai.tool.RemoteCommandExecutor
+                        .execute(this, tool, params, id);
+            } catch (Throwable t) {
+                cmdOk = false;
+                cmdResult = String.valueOf(t);
+            }
+            try {
+                com.oilquiz.app.ai.tool.RemoteDshTool.ackCommand(
+                        AIChatActivity.this, id, cmdOk, cmdResult);
+            } catch (Exception ignored) {
+                // 回执失败不影响本机结果
+            }
+            return;
+        }
         try {
             com.oilquiz.app.ai.tool.AIToolResult r = com.oilquiz.app.ai.tool.AIToolManager
                     .getInstance(AIChatActivity.this).executeTool(tool, params);

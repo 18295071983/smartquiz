@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-11-18] feat(remote): 电脑直接调手机工具 tool_call（白名单 + 手机确认）
+
+- 手机 `RemoteCommandExecutor` 新增 `tool_call`：默认白名单 + 每次 `AppDialog` 确认
+  （30 秒不响应=拒绝），允许后调 `AIToolManager.executeTool` 并回传结果，同时记 `phone.event.tool`。
+- 插件：`POST /v2/phone/tool_call {name,args}` 与 `phone_cli "tools call <name> <json>"`
+  （共用 cmdQueue，tool=tool_call）。
+- 聊天页 `executeRemoteCommand` 把 `tool_call`/`agent_ask` 交给 `RemoteCommandExecutor`，
+  不再落到通用工具执行（否则会 ack 空成功）。
+- 默认允许：`ui_component/screen_capture/file_reader/web_render/time_date/calculator/text_tools/unit_converter/screen_watch/ocr_recognize`；
+  默认禁止：`linux_shell/python_execute/file_generator/export_apk/app_operation/system_resource/system_connect/git/pip_install/database`。
+- 实测：电脑发起 → 手机弹确认（日志 `confirm=true`）→ 返回时间；事件 `time_date ok 2ms` 可查。
+
 ## [2026-11-18] feat(remote): 手机本地事件回传 phone.event.*（工具轨迹 / agent 状态 / 错误）
 
 - **手机**：新增 `PhoneEventReporter`——队列（上限 50）+ 批量 POST 到插件 `/session`
