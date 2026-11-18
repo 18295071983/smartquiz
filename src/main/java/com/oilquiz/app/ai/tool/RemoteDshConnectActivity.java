@@ -1582,6 +1582,18 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
      * @param silent true = 自动刷新用：不先写"正在探测…"，只把结果换上去（避免每 5 秒闪一次）
      */
     private void probe(boolean setIntent, boolean toastResult, boolean silent) {
+        // 2026-11-19：内置模式下不探测电脑端（否则页面还会显示"电脑端在线/组网地址"，
+        // 看起来像服务仍然指向电脑）。要连电脑请先关闭开关。
+        if (RemoteDshTool.isPreferBuiltin(this)) {
+            busy = false;
+            probedOnce = true;
+            refresh();
+            if (!silent) {
+                showProbe(COLOR_WARN, "当前是【内置 DSH】模式：已跳过电脑端探测。\n"
+                        + "要用电脑：先关闭「使用内置 DSH」开关，再点「连接」。", null);
+            }
+            return;
+        }
         if (busy) {
             return;
         }
