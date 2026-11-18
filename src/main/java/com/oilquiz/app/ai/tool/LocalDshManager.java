@@ -234,12 +234,11 @@ public final class LocalDshManager {
      * 优先用 dsh-phone 落盘的带 token URL（每次启动 token 都会变）。
      */
     public static void openLogin(Context c) {
-        // 方案 B：内置 DSH 的 token 由进程输出解析
+        // 方案 B：内置 DSH 用 App 内 WebView 单页登录（避免外部浏览器多标签抢回调）
         String builtin = com.oilquiz.app.ai.dsh.EmbeddedDsh.token();
         if (builtin != null && !builtin.isEmpty()) {
             try {
-                Intent it = new Intent(Intent.ACTION_VIEW,
-                        Uri.parse(com.oilquiz.app.ai.dsh.EmbeddedDsh.loginUrl()));
+                Intent it = new Intent(c, com.oilquiz.app.ai.dsh.DshLoginActivity.class);
                 it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 c.startActivity(it);
                 return;

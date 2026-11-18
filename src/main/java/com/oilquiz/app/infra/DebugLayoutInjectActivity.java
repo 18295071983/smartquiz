@@ -296,6 +296,21 @@ public class DebugLayoutInjectActivity extends Activity {
             }, "dsh-start").start();
             return;
         }
+        if ("dsh_login".equals(getIntent().getStringExtra("mode"))) {
+            new Thread(() -> {
+                com.oilquiz.app.ai.dsh.EmbeddedDsh.start(this);
+                runOnUiThread(() -> {
+                    try {
+                        startActivity(new android.content.Intent(this,
+                                com.oilquiz.app.ai.dsh.DshLoginActivity.class));
+                    } catch (Throwable t) {
+                        Log.e(TAG, "dsh_login launch failed", t);
+                    }
+                });
+            }, "dsh-login").start();
+            finish();
+            return;
+        }
         if ("dsh_stop".equals(getIntent().getStringExtra("mode"))) {
             com.oilquiz.app.ai.dsh.EmbeddedDsh.stop(this);
             Log.i(TAG, "DSH_STOP");
