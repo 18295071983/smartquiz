@@ -131,7 +131,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="本机 DSH（Termux）"
+                    android:text="本机 DSH（内置）"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
                     android:textColor="?attr/colorControlText"/>
@@ -161,6 +161,23 @@
                         android:textSize="@dimen/text_12"
                         android:textAllCaps="false"
                         app:cornerRadius="@dimen/radius_8"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_local_dsh_stop"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_40"
+                        android:layout_weight="1"
+                        android:text="停止"
+                        android:textSize="@dimen/text_12"
+                        android:textAllCaps="false"
+                        app:cornerRadius="@dimen/radius_8"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="@dimen/space_8">
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_local_dsh_login"

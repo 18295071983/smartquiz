@@ -181,14 +181,23 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         }
         if (btnLocalStart != null) {
             btnLocalStart.setOnClickListener(v -> {
-                toast("正在 Termux 里启动 dsh…");
+                toast("正在启动内置 DSH…");
                 new Thread(() -> {
                     String msg = com.oilquiz.app.ai.tool.LocalDshManager.start(this);
                     runOnUiThread(() -> {
                         toast(msg);
-                        refreshLocalDsh(localDshStatus);
+                        // 服务异步起，稍等再刷一次状态
+                        localDshStatus.postDelayed(() -> refreshLocalDsh(localDshStatus), 3000);
+                        localDshStatus.postDelayed(() -> refreshLocalDsh(localDshStatus), 12000);
                     });
                 }, "local-dsh-start").start();
+            });
+        }
+        android.view.View btnLocalStop = findViewById(R.id.btn_local_dsh_stop);
+        if (btnLocalStop != null) {
+            btnLocalStop.setOnClickListener(v -> {
+                toast(com.oilquiz.app.ai.tool.LocalDshManager.stop(this));
+                localDshStatus.postDelayed(() -> refreshLocalDsh(localDshStatus), 800);
             });
         }
         if (btnLocalRefresh != null) {
@@ -197,6 +206,10 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         android.view.View btnChannel = findViewById(R.id.btn_termux_channel);
         if (btnChannel != null) {
             btnChannel.setOnClickListener(v -> com.oilquiz.app.ai.tool.TermuxChannel.showDialog(this));
+            // 内置运行时不需要 Termux 通道；解压好后把这项入口收起来，避免误点
+            if (com.oilquiz.app.ai.dsh.EmbeddedDsh.isPrepared(this)) {
+                btnChannel.setVisibility(android.view.View.GONE);
+            }
         }
         refreshLocalDsh(localDshStatus);
 
