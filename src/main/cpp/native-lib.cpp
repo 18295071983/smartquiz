@@ -10867,6 +10867,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeReadGgufMeta(
 // 本接口统一用**字节** + 明确字段名，设备列表来自 ggml 枚举（不猜）。
 // 注：需要重新编译 libllama-jni.so 才会生效；Java/Kotlin 侧已做降级。
 // ============================================================================
+extern "C"
 JNIEXPORT jstring JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetSysReport(JNIEnv* env, jclass /* clazz */) {
     nlohmann::ordered_json report;
