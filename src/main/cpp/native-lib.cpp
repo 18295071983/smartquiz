@@ -10947,3 +10947,82 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetOffloadStats(JNIEnv* env, jclas
     }
     return env->NewStringUTF(j.dump().c_str());
 }
+
+// HTP-OP-PROBE(2026-11-20)：动态探测 HTP 对常见 ggml op 的支持（不硬编码结果）。
+// 做法：构造有代表性的 tensor（元数据即可，no_alloc），逐个调 ggml_backend_dev_supports_op。
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeProbeHtpOps(JNIEnv* env, jclass /* clazz */) {
+    nlohmann::ordered_json out;
+    nlohmann::ordered_json results = nlohmann::ordered_json::array();
+
+    ggml_backend_dev_t htp = nullptr;
+    const size_t n = ggml_backend_dev_count();
+    for (size_t i = 0; i < n; i++) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        if (!dev) continue;
+        ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+        const char* rn = reg ? ggml_backend_reg_name(reg) : nullptr;
+        if (rn && (strstr(rn, "HTP") != nullptr || strstr(rn, "Hexagon") != nullptr)) { htp = dev; break; }
+    }
+    out["deviceCount"] = (int) n;
+    if (htp == nullptr) {
+        out["error"] = "no HTP device";
+        out["results"] = results;
+        return env->NewStringUTF(out.dump().c_str());
+    }
+    out["device"] = ggml_backend_dev_name(htp);
+
+    ggml_init_params ip{};
+    ip.mem_size = 8 * 1024 * 1024;
+    ip.mem_buffer = nullptr;
+    ip.no_alloc = true;
+    ggml_context* ctx = ggml_init(ip);
+    if (ctx == nullptr) {
+        out["error"] = "ggml_init failed";
+        return env->NewStringUTF(out.dump().c_str());
+    }
+
+    auto check = [&](const char* name, ggml_tensor* t) {
+        if (t == nullptr) {
+            results.push_back({{"op", name}, {"supported", false}, {"error", "tensor build failed"}});
+            return;
+        }
+        bool ok = false;
+        try { ok = ggml_backend_dev_supports_op(htp, t); } catch (...) { ok = false; }
+        results.push_back({{"op", name}, {"supported", ok}});
+    };
+
+    // 1) MUL_MAT：方阵 f16
+    {
+        ggml_tensor* a = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, 4096, 4096);
+        ggml_tensor* b = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, 4096, 4096);
+        check("mul_mat_f16", (a && b) ? ggml_mul_mat(ctx, a, b) : nullptr);
+    }
+    // 2) MUL_MAT：Q4_0 权重（HTP 主力量化）
+    {
+        ggml_tensor* a = ggml_new_tensor_2d(ctx, GGML_TYPE_Q4_0, 4096, 4096);
+        ggml_tensor* b = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, 4096, 32);
+        check("mul_mat_q4_0", (a && b) ? ggml_mul_mat(ctx, a, b) : nullptr);
+    }
+    // 3) RMS_NORM
+    {
+        ggml_tensor* x = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 4096);
+        check("rms_norm_f32", x ? ggml_rms_norm(ctx, x, 1e-6f) : nullptr);
+    }
+    // 4) SOFT_MAX（注意力）
+    {
+        ggml_tensor* x = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 4096, 32);
+        check("soft_max_f32", x ? ggml_soft_max(ctx, x) : nullptr);
+    }
+    // 5) GET_ROWS（embedding 查表）
+    {
+        ggml_tensor* w = ggml_new_tensor_2d(ctx, GGML_TYPE_Q4_0, 4096, 1024);
+        ggml_tensor* ids = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, 8);
+        check("get_rows_q4_0", (w && ids) ? ggml_get_rows(ctx, w, ids) : nullptr);
+    }
+
+    out["results"] = results;
+    ggml_free(ctx);
+    return env->NewStringUTF(out.dump().c_str());
+}
