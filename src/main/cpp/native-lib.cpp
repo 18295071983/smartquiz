@@ -11022,7 +11022,49 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeProbeHtpOps(JNIEnv* env, jclass /*
         check("get_rows_q4_0", (w && ids) ? ggml_get_rows(ctx, w, ids) : nullptr);
     }
 
+    // 6) ADD（残差）
+    {
+        ggml_tensor* a = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 4096, 32);
+        ggml_tensor* b = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 4096, 32);
+        check("add_f32", (a && b) ? ggml_add(ctx, a, b) : nullptr);
+    }
+    // 7) NORM（LayerNorm）
+    {
+        ggml_tensor* x = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 4096);
+        check("norm_f32", x ? ggml_norm(ctx, x, 1e-5f) : nullptr);
+    }
+    // 8) SILU（FFN 激活）
+    {
+        ggml_tensor* x = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 4096, 32);
+        check("silu_f32", x ? ggml_silu(ctx, x) : nullptr);
+    }
+    // 9) SOFT_MAX F16（注意力）
+    {
+        ggml_tensor* x = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, 4096, 32);
+        check("soft_max_f16", x ? ggml_soft_max(ctx, x) : nullptr);
+    }
     out["results"] = results;
     ggml_free(ctx);
     return env->NewStringUTF(out.dump().c_str());
+}
+
+// HTP-ARCH(2026-11-20)：查询 Hexagon 架构版本（v73/v75/v79/v81/v85），用于缓存 key 与设备卡片。
+// htpdrv_get_arch 由 ggml-hexagon 静态库提供（extern "C"，签名见 htp-drv.h）；CDSP_DOMAIN_ID=3。
+extern "C" int htpdrv_get_arch(int domain, int * arch);
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetHtpArch(JNIEnv* env, jclass /* clazz */) {
+    nlohmann::ordered_json j;
+    int arch = 0;
+    const int err = htpdrv_get_arch(3 /* CDSP_DOMAIN_ID */, &arch);
+    j["err"] = err;
+    if (err == 0 && arch > 0) {
+        j["arch"] = arch;
+        j["name"] = std::string("v") + std::to_string(arch);
+    } else {
+        j["arch"] = 0;
+        j["name"] = "";
+    }
+    return env->NewStringUTF(j.dump().c_str());
 }
