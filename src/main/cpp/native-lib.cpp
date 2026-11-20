@@ -10850,3 +10850,62 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeReadGgufMeta(
 }
 
 }
+
+// ============================================================================
+// SYS-REPORT(2026-11-20)：把 sys_probe 的准确读数以 JSON 暴露给 Java。
+//
+// 背景（老实现的问题）：
+//   · nativeGetDeviceInfo 只是截取 /proc/cpuinfo 前 10 行 + /proc/meminfo 前 5 行，
+//     字段/单位都不稳定，Java 侧无法可靠解析；
+//   · nativeGetFreeDeviceMemory/TotalDeviceMemory 名字叫 Device，实际读的是
+//     /proc/meminfo 的 MemAvailable/MemTotal（kB），是**系统内存**不是显存；
+//   · sys_probe.cpp 里已有按 page size 换算的准确实现（MemoryInfo/SelfInfo），
+//     但没暴露给 JNI。
+//
+// 本接口统一用**字节** + 明确字段名，设备列表来自 ggml 枚举（不猜）。
+// 注：需要重新编译 libllama-jni.so 才会生效；Java/Kotlin 侧已做降级。
+// ============================================================================
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetSysReport(JNIEnv* env, jclass /* clazz */) {
+    nlohmann::ordered_json report;
+
+    const sysprobe::MemoryInfo mem = sysprobe::readMemoryInfo();
+    report["mem"] = {
+        {"valid", mem.valid},
+        {"totalBytes", mem.memTotalBytes},
+        {"availableBytes", mem.memAvailableBytes},
+        {"freeBytes", mem.memFreeBytes},
+        {"cachedBytes", mem.cachedBytes},
+        {"swapTotalBytes", mem.swapTotalBytes},
+        {"swapFreeBytes", mem.swapFreeBytes},
+        {"pageSizeBytes", mem.pageSizeBytes},
+    };
+
+    auto text = [](const char* p) -> std::string { return (p != nullptr) ? std::string(p) : std::string(); };
+
+    nlohmann::ordered_json devices = nlohmann::ordered_json::array();
+    const size_t n = ggml_backend_dev_count();
+    for (size_t i = 0; i < n; i++) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        if (dev == nullptr) continue;
+        ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+        const char* typeStr = "Unknown";
+        switch (ggml_backend_dev_type(dev)) {
+            case GGML_BACKEND_DEVICE_TYPE_CPU:   typeStr = "CPU";   break;
+            case GGML_BACKEND_DEVICE_TYPE_GPU:   typeStr = "GPU";   break;
+            case GGML_BACKEND_DEVICE_TYPE_IGPU:  typeStr = "IGPU";  break;
+            case GGML_BACKEND_DEVICE_TYPE_ACCEL: typeStr = "ACCEL"; break;
+            default: break;
+        }
+        devices.push_back({
+            {"name", text(ggml_backend_dev_name(dev))},
+            {"description", text(ggml_backend_dev_description(dev))},
+            {"type", typeStr},
+            {"backend", text(reg ? ggml_backend_reg_name(reg) : nullptr)},
+        });
+    }
+    report["devices"] = devices;
+    report["deviceCount"] = (int) devices.size();
+
+    return env->NewStringUTF(report.dump().c_str());
+}
