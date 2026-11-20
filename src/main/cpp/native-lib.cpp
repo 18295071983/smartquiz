@@ -339,11 +339,21 @@ void engineLogAppend(int prio, const char* tag, const char* fmt, ...) {
 
 // ========== llama.cpp 日志回调 ==========
 // 将 llama.cpp 内部日志转发到 Android logcat，便于诊断模型加载失败原因
+// OFFLOAD-STATS: 回退告警计数
+static std::atomic<int> g_fallbackWarnings{0};
+static std::mutex       g_fallbackMutex;
+static std::string      g_lastFallbackWarning;
+
 static void llama_log_callback_impl(enum ggml_log_level level, const char * text, void * user_data) {
     (void)user_data;
     if (!text) return;
     // 过滤掉空行和重复消息
     if (text[0] == '\0') return;
+    if (level == GGML_LOG_LEVEL_WARN && (strstr(text, "assigned to device") != nullptr || strstr(text, "not supported") != nullptr)) {
+        g_fallbackWarnings.fetch_add(1);
+        std::lock_guard<std::mutex> lock(g_fallbackMutex);
+        g_lastFallbackWarning = text;
+    }
     switch (level) {
         case GGML_LOG_LEVEL_ERROR:  LOGE("[llama] %s", text); break;
         case GGML_LOG_LEVEL_WARN:   LOGW("[llama] %s", text); break;
@@ -10912,4 +10922,28 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetSysReport(JNIEnv* env, jclass /
     report["deviceCount"] = (int) devices.size();
 
     return env->NewStringUTF(report.dump().c_str());
+}
+// OFFLOAD-STATS：卸载层数/总层数/后端/回退告警（只读现有状态）
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetOffloadStats(JNIEnv* env, jclass /* clazz */) {
+    nlohmann::ordered_json j;
+    auto* ctx = s_helperContext;
+    llama_model* mdl = (ctx != nullptr) ? ctx->getModel() : nullptr;
+    const int total = (mdl != nullptr) ? llama_model_n_layer(mdl) : -1;
+    const int offload = (ctx != nullptr) ? ctx->getGPULayers() : -1;
+    j["loaded"] = (mdl != nullptr);
+    j["totalLayers"] = total;
+    j["offloadLayers"] = offload;
+    j["fullNpu"] = (total > 0 && offload >= total);
+    {
+        std::lock_guard<std::mutex> lock(g_resolvedBackendMutex);
+        j["backend"] = g_resolvedBackend;
+    }
+    j["fallbackWarnings"] = g_fallbackWarnings.load();
+    {
+        std::lock_guard<std::mutex> lock(g_fallbackMutex);
+        j["lastFallback"] = g_lastFallbackWarning;
+    }
+    return env->NewStringUTF(j.dump().c_str());
 }
