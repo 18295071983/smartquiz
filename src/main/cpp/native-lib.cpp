@@ -10895,6 +10895,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetSysReport(JNIEnv* env, jclass /
             case GGML_BACKEND_DEVICE_TYPE_GPU:   typeStr = "GPU";   break;
             case GGML_BACKEND_DEVICE_TYPE_IGPU:  typeStr = "IGPU";  break;
             case GGML_BACKEND_DEVICE_TYPE_ACCEL: typeStr = "ACCEL"; break;
+            case GGML_BACKEND_DEVICE_TYPE_META:  typeStr = "META";  break;
             default: break;
         }
         devices.push_back({
