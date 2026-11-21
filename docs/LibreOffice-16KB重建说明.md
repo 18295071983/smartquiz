@@ -122,7 +122,7 @@ llvm-readelf -l viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so | findstr
 | JNI 兼容 | `liblo` 导出 `Java_org_libreoffice_*` 符号 **42 个，与旧 25.2 完全一致**（无新增/缺失），现有 Java 源码可直接用 |
 | 资源 | `program` 6 / `share` 42 / `unpack` 38，与旧版文件名一一对应（内容按 26.2 更新） |
 | `UNPACK_VERSION` | 2 → 3（强制老用户重新解压字体/rdb） |
-| 真机验证 | 安装后 `am start` 打开测试 docx：标题/正文/表格/中文渲染全部正常（截图见 `.tmp-verify/lo_render.png`） |
+| 真机验证 | 安装后 `am start` 打开测试 docx：标题/正文/表格/中文渲染全部正常（当时截图存放在 `.tmp-verify/`，已随临时目录清理） |
 
 > 许可：LibreOffice 为 MPL-2.0；F-Droid 构建对应其公开源码 tarball，提取再分发时按 MPL 要求保留声明
 > （项目 `THIRD_PARTY_NOTICES` 已列 LibreOffice）。
