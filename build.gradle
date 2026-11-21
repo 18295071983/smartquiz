@@ -405,10 +405,15 @@ dependencies {
     // APK 签名库（App 内导出 APK 用：v1+v2+v3 签名，签名时自动对齐 STORED 条目）
     implementation files('libs/apksig-8.0.2.jar')
     // 本地高精度 OCR：RapidOCR4j-Android（RapidOCR Java 移植，PaddleOCR 系模型 + ONNX Runtime + OpenCV，
-    // 端侧离线，中文精度远高于 ML Kit；内部已带 onnxruntime-android:1.18.0 与 opencv:4.9.0）
+    // 端侧离线，中文精度远高于 ML Kit；它内部钉的是 onnxruntime-android:1.18.0 与 opencv:4.9.0）
     implementation "io.github.hzkitty:rapidocr4j-android:1.0.0"
-    // 本地离线语音识别（SenseVoice）：直接复用 onnxruntime-android（rapidocr4j 已传递同版本，显式声明确保 API 可见）
-    implementation "com.microsoft.onnxruntime:onnxruntime-android:1.18.0"
+    // ELF-16K(2026-11-20)：下面两条显式声明把 rapidocr4j 传递进来的老版本顶上去（Gradle 取高版本）。
+    //  - opencv 4.9.0 是 NDK r25c 构建，libopencv_java4.so 的 LOAD 段 = 0x1000（16 KB 页设备加载失败）；
+    //    4.14.0 实测 arm64 = 0x4000。
+    //  - onnxruntime 1.18.0 是 NDK r26b 构建，同理；1.32.0 实测 libonnxruntime.so / libonnxruntime4j_jni.so = 0x4000
+    //    （代价：libonnxruntime.so 16.3 MB → 36.3 MB）。
+    implementation "org.opencv:opencv:4.14.0"
+    implementation "com.microsoft.onnxruntime:onnxruntime-android:1.32.0"
     implementation "net.i2p.crypto:eddsa:0.3.0"
     // SSH 纯 Java 库（agent 的 ssh_exec 工具用：连接任意远程主机、密码/密钥认证、sftp、端口转发。
     // 用社区活跃维护版 com.github.mwiede:jsch（官方 jcraft 停在 0.1.55 已不再维护）；
@@ -484,27 +489,21 @@ dependencies {
     implementation "androidx.webkit:webkit:1.11.0"
     implementation "androidx.lifecycle:lifecycle-process:2.6.1"
     implementation "androidx.security:security-crypto:1.1.0-alpha05"
-    implementation "androidx.camera:camera-core:1.3.1"
-    implementation "androidx.camera:camera-camera2:1.3.1"
-    implementation "androidx.camera:camera-lifecycle:1.3.1"
-    implementation "androidx.camera:camera-view:1.3.1"
+    // CAMERAX-REMOVED(2026-11-20)：全仓库对 androidx.camera / CameraSelector / ImageCapture 零引用，
+    // 这四个 AAR 唯一贡献是一个 4 KB 对齐的 libimage_processing_util_jni.so，直接去掉。
+    // exifinterface 另有 3 处在用（MediaToolkitTool / OCRActivity / FileContentExtractor），保留。
     implementation "androidx.exifinterface:exifinterface:1.3.7"
-    implementation "com.google.mlkit:text-recognition:16.0.0"
-        implementation "com.google.mlkit:text-recognition-chinese:16.0.0"
-        implementation "com.google.mlkit:text-recognition-japanese:16.0.0"
-        implementation "com.google.mlkit:text-recognition-korean:16.0.0"
+    // MLKIT-REMOVED(2026-11-20)：ML Kit 四组依赖整套删除。理由：
+    //  ① 识别质量不行（中文/表格/手写都弱于 RapidOCR PP-OCRv6），OCRManager 里它只是最后一级兜底；
+    //  ② 它带来的 libmlkit_google_ocr_pipeline.so / libmlkitcommonpipeline.so 是 NDK r25 构建的
+    //     4 KB 对齐库，是 16 KB 页审计里的主要负担（升到 bundled-common 17.0.0 / vision-internal-vkp
+    //     18.2.3 能变 0x4000，但既然不用了就直接删干净）；
+    //  ③ ImageLabelManager / ObjectDetectionManager 两个包装类全仓库零调用，随依赖一起删。
     
-    implementation "com.google.mlkit:image-labeling:17.0.7"
-    implementation "com.google.mlkit:image-labeling-custom:17.0.1"
-    
-    implementation "com.google.mlkit:object-detection:17.0.0"
-    implementation "com.google.mlkit:object-detection-custom:17.0.1"
-    
-    // TensorFlow Lite
-    implementation "org.tensorflow:tensorflow-lite:2.15.0"
-    implementation "org.tensorflow:tensorflow-lite-support:0.4.4"
-    implementation "org.tensorflow:tensorflow-lite-gpu:2.15.0"
-    implementation "org.tensorflow:tensorflow-lite-metadata:0.4.4"
+    // TFLITE-REMOVED(2026-11-20)：代码里对 org.tensorflow 零引用（只有下载 .tflite 模型的
+    // Python 脚本），四个 AAR 只贡献了 3 个 4 KB 对齐的 .so（tensorflow-lite 2.15.0 用
+    // NDK r25b 构建），是 16 KB 页检测里的白名单负担。需要 TFLite 时再加回来，但必须换成
+    // 16 KB 对齐的版本（用 readelf 复核 LOAD 段 = 0x4000）。
     
     implementation "androidx.room:room-runtime:2.5.2"
     annotationProcessor "androidx.room:room-compiler:2.5.2"
@@ -581,7 +580,14 @@ dependencies {
     // 这三个都是独立模块；DefaultMediaSourceFactory 有对应类才会按 scheme/MIME 选源。
     implementation "androidx.media3:media3-exoplayer-rtsp:1.3.1"
     implementation "androidx.media3:media3-exoplayer-smoothstreaming:1.3.1"
-    implementation "androidx.media3:media3-datasource-rtmp:1.3.1"
+    // RTMP-16K(2026-11-20)：media3 的 RTMP 原生库来自 io.antmedia:rtmp-client:3.2.0（2021 年，唯一版本，
+    // librtmp-jni.so 是 4 KB 对齐，上游不再更新，见 androidx/media issue #1918）。
+    // 换成同源 fork：唯一改动是 CMakeLists 的链接参数，实测 librtmp-jni.so = 0x4000；
+    // JNI 符号（Java_io_antmedia_rtmp_1client_RtmpClient_*）与旧库逐条同名，Java 包名同为 io.antmedia.rtmp_client。
+    implementation("androidx.media3:media3-datasource-rtmp:1.3.1") {
+        exclude group: "io.antmedia", module: "rtmp-client"
+    }
+    implementation "com.github.mcxinyu:LibRtmp-Client-for-Android:v3.2.0.m2"
     // P2 投屏：Media3 Cast + Cast SDK（默认 Media Receiver，无需自建接收端 App ID）。
     implementation "androidx.media3:media3-cast:1.3.1"
     // MediaSessionService：音频播放器单例 + 前台服务常驻（离开聊天页/切后台/锁屏仍播，
@@ -606,10 +612,10 @@ dependencies {
     implementation "dev.ffmpegkit-maintained:ffmpeg-kit-min:8.1.9@aar"
     implementation "com.arthenica:smart-exception-java:0.2.1"
     
-    // PdfiumAndroid - 免费开源PDF渲染库 (Google Pdfium)
-    implementation("com.github.barteksc:pdfium-android:1.9.0") {
-        exclude group: 'com.android.support'
-    }
+    // PDF 预览改用平台 android.graphics.pdf.PdfRenderer（见 PdfiumPreviewManager）。
+    // PDFIUM-REMOVED(2026-11-20)：原 com.github.barteksc:pdfium-android:1.9.0 是 GCC 4.9 / 2016 年构建，
+    // libjniPdfium/libmodpdfium/libmodft2/libmodpng 全 4 KB 对齐，16 KB 页设备上加载失败；
+    // 维护分支 com.github.mhiew:pdfium-android:1.9.2 实测仍是 0x1000，故整体移除（少 4 个 .so、~5.7 MB）。
     
     // TBS SDK - 需要从腾讯云官网下载后放入 libs/ 目录
     // （X5 已停止官方维护，Maven 仅有壳 jar 无内核 so，设备实测不可用；暂不集成）
