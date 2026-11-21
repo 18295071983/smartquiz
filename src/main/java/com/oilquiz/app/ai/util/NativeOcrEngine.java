@@ -87,6 +87,10 @@ public class NativeOcrEngine {
     /**
      * 同步识别一张图片。
      *
+     * <p>OCR-ENHANCE(2026-11-20)：原来第一次识别不到文字会回退 ML Kit，ML Kit 已移除；
+     * 现在改成用 OpenCV 做一次图像增强（灰度 + CLAHE + 去噪 + 小图放大）再识别一次。
+     * 增强只对「原图完全没出字」的情况触发，正常图片不会多花时间。</p>
+     *
      * @param context 应用上下文
      * @param bitmap  待识别图片
      * @return 识别文本（按行 \n 连接）；引擎不可用 / 未识别到文本 / 异常时返回 null
@@ -99,6 +103,37 @@ public class NativeOcrEngine {
         if (engine == null) {
             return null;
         }
+
+        String text = runOnce(engine, bitmap, "原图");
+        if (text != null && !text.trim().isEmpty()) {
+            return text;
+        }
+
+        // 第一次没出字：OpenCV 增强后重试一次
+        Bitmap enhanced = OcrImagePreprocessor.enhanceForOcr(bitmap);
+        if (enhanced == null) {
+            return null;
+        }
+        try {
+            text = runOnce(engine, enhanced, "OpenCV增强图");
+        } finally {
+            if (!enhanced.isRecycled()) {
+                enhanced.recycle();
+            }
+        }
+        if (text != null && !text.trim().isEmpty()) {
+            Log.i(TAG, "RapidOCR 原图无结果，OpenCV 增强后识别成功: " + text.length() + " chars");
+            return text;
+        }
+        return null;
+    }
+
+    /**
+     * 跑一次识别。
+     *
+     * @param tag 用于日志区分「原图 / 增强图」
+     */
+    private static String runOnce(RapidOCR engine, Bitmap bitmap, String tag) {
         try {
             OcrResult result = engine.run(bitmap);
             if (result == null) {
@@ -106,13 +141,14 @@ public class NativeOcrEngine {
             }
             String text = result.getStrRes();
             if (text == null || text.trim().isEmpty()) {
+                Log.d(TAG, "RapidOCR 未识别到文本(" + tag + ")");
                 return null;
             }
-            Log.i(TAG, "RapidOCR 识别完成: " + text.length() + " chars, "
+            Log.i(TAG, "RapidOCR 识别完成(" + tag + "): " + text.length() + " chars, "
                     + Math.round(result.getElapseTime() * 1000) + "ms");
             return text;
         } catch (Throwable t) {
-            Log.e(TAG, "RapidOCR 识别异常: " + t.getMessage(), t);
+            Log.e(TAG, "RapidOCR 识别异常(" + tag + "): " + t.getMessage(), t);
             return null;
         }
     }

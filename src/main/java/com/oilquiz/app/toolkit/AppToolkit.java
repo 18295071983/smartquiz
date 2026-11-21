@@ -4,8 +4,9 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.Uri;
 
-import com.oilquiz.app.manager.ImageLabelManager;
-import com.oilquiz.app.manager.ObjectDetectionManager;
+import com.oilquiz.app.ai.onnx.OnnxImageClassifier;
+import com.oilquiz.app.ai.onnx.OnnxModelStore;
+import com.oilquiz.app.ai.onnx.OnnxObjectDetector;
 import com.oilquiz.app.manager.OCRManager;
 import com.oilquiz.app.util.FileParserUtil;
 import com.oilquiz.app.util.ImageGeneratorUtil;
@@ -33,14 +34,10 @@ public class AppToolkit {
     
     // 工具实例
     private OCRManager ocrManager;
-    private ImageLabelManager imageLabelManager;
-    private ObjectDetectionManager objectDetectionManager;
     
     private AppToolkit(Context context) {
         this.context = context.getApplicationContext();
         this.ocrManager = new OCRManager(this.context);
-        this.imageLabelManager = new ImageLabelManager(this.context);
-        this.objectDetectionManager = new ObjectDetectionManager(this.context);
     }
     
     /**
@@ -106,106 +103,81 @@ public class AppToolkit {
         return ocrManager.getCurrentLanguage();
     }
     
-    // ==================== 图像标签识别功能 ====================
-    
-    public ImageLabelManager getImageLabelManager() {
-        return imageLabelManager;
+    // ==================== 图像标签 / 目标检测（ONNX，模型内置、首次使用复制） ====================
+    // ONNX-FEATURE(2026-11-20)：ML Kit 的 image-labeling / object-detection 已整套移除（模型质量差 +
+    // 4 KB 对齐的 native 库），这里用 ONNX Runtime 1.32 + ImageNet/COCO 模型补回同样的能力。
+    // 模型文件内置在 assets/models/：第一次调用 ensureXxxModel() 才复制到 filesDir/onnx_models/（不联网）。
+
+    /** 图像标签模型是否已下载 */
+    public boolean isImageLabelModelReady() {
+        return OnnxImageClassifier.isReady(context);
     }
-    
-    public void recognizeImageLabels(Bitmap bitmap, ImageLabelManager.ImageLabelCallback callback) {
-        imageLabelManager.processImage(bitmap, callback);
+
+    /** 确保图像标签模型就绪（首次会把内置模型复制到 filesDir；回调在工作线程） */
+    public void ensureImageLabelModel(OnnxModelStore.Callback callback) {
+        OnnxImageClassifier.ensureReady(context, callback);
     }
-    
-    public void recognizeImageLabels(Bitmap bitmap, ImageLabelManager.ImageLabelCallback callback, int rotationDegrees) {
-        imageLabelManager.processImage(bitmap, callback, rotationDegrees);
+
+    /**
+     * 识别图片标签（同步阻塞，必须在工作线程调用；模型未就绪时返回空列表）。
+     *
+     * @param topK 返回前 K 个标签
+     */
+    public List<OnnxImageClassifier.Label> classifyImage(Bitmap bitmap, int topK) {
+        return OnnxImageClassifier.classify(context, bitmap, topK);
     }
-    
-    public void recognizeImageLabels(Uri imageUri, ImageLabelManager.ImageLabelCallback callback) {
-        imageLabelManager.processImage(imageUri, callback);
+
+    /** 目标检测模型是否已下载 */
+    public boolean isObjectDetectionModelReady() {
+        return OnnxObjectDetector.isReady(context, OnnxObjectDetector.SPEC_DEFAULT);
     }
-    
-    public void setImageLabelConfidenceThreshold(float threshold) {
-        imageLabelManager.setConfidenceThreshold(threshold);
+
+    /** 确保目标检测模型就绪（首次会把内置模型复制到 filesDir；建议只给需要检测的功能调用） */
+    public void ensureObjectDetectionModel(OnnxModelStore.Callback callback) {
+        OnnxObjectDetector.ensureReady(context, OnnxObjectDetector.SPEC_DEFAULT, callback);
     }
-    
-    public float getImageLabelConfidenceThreshold() {
-        return imageLabelManager.getConfidenceThreshold();
+
+    /**
+     * 检测图片中的物体（同步阻塞，必须在工作线程调用；模型未就绪时返回空列表）。
+     *
+     * @param minScore   置信度阈值（0.35~0.5 比较合适）
+     * @param maxResults 最多返回多少个框
+     */
+    public List<OnnxObjectDetector.Detection> detectObjects(Bitmap bitmap, float minScore, int maxResults) {
+        return OnnxObjectDetector.detect(context, OnnxObjectDetector.SPEC_DEFAULT, bitmap, minScore, maxResults);
     }
-    
-    public boolean loadCustomImageLabelModel(String modelPath, String labelPath) {
-        return imageLabelManager.loadCustomModel(modelPath, labelPath);
+
+    /** 把标签列表格式化成一行文本（给工具/卡片展示用） */
+    public String formatImageLabelsAsText(List<OnnxImageClassifier.Label> results) {
+        if (results == null || results.isEmpty()) {
+            return "未识别到图像标签";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < results.size(); i++) {
+            if (i > 0) {
+                sb.append("、");
+            }
+            sb.append(results.get(i).toString());
+        }
+        return sb.toString();
     }
-    
-    public String getCurrentImageLabelModelType() {
-        return imageLabelManager.getCurrentModelType();
+
+    /** 把检测结果格式化成多行文本 */
+    public String formatDetectionsAsText(List<OnnxObjectDetector.Detection> results) {
+        if (results == null || results.isEmpty()) {
+            return "未检测到物体";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (OnnxObjectDetector.Detection d : results) {
+            sb.append(String.format(java.util.Locale.US, "%s %.0f%% [%.3f,%.3f,%.3f,%.3f]",
+                    d.label, d.score * 100f, d.x1, d.y1, d.x2, d.y2));
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+        }
+        return sb.toString().trim();
     }
-    
-    public String formatImageLabelsAsText(java.util.List<ImageLabelManager.ImageLabelResult> results) {
-        return imageLabelManager.formatResultsAsText(results);
-    }
-    
-    public org.json.JSONObject formatImageLabelsAsJson(java.util.List<ImageLabelManager.ImageLabelResult> results) {
-        return imageLabelManager.formatResultsAsJson(results);
-    }
-    
-    // ==================== 目标检测功能 ====================
-    
-    public ObjectDetectionManager getObjectDetectionManager() {
-        return objectDetectionManager;
-    }
-    
-    public void detectObjects(Bitmap bitmap, ObjectDetectionManager.ObjectDetectionCallback callback) {
-        objectDetectionManager.processImage(bitmap, callback);
-    }
-    
-    public void detectObjects(Bitmap bitmap, ObjectDetectionManager.ObjectDetectionCallback callback, int rotationDegrees) {
-        objectDetectionManager.processImage(bitmap, callback, rotationDegrees);
-    }
-    
-    public void detectObjects(Uri imageUri, ObjectDetectionManager.ObjectDetectionCallback callback) {
-        objectDetectionManager.processImage(imageUri, callback);
-    }
-    
-    public void setObjectDetectionConfidenceThreshold(float threshold) {
-        objectDetectionManager.setConfidenceThreshold(threshold);
-    }
-    
-    public float getObjectDetectionConfidenceThreshold() {
-        return objectDetectionManager.getConfidenceThreshold();
-    }
-    
-    public void setObjectDetectionMultipleObjects(boolean enable) {
-        objectDetectionManager.setEnableMultipleObjects(enable);
-    }
-    
-    public boolean isObjectDetectionMultipleObjects() {
-        return objectDetectionManager.isEnableMultipleObjects();
-    }
-    
-    public void setObjectDetectionClassification(boolean enable) {
-        objectDetectionManager.setEnableClassification(enable);
-    }
-    
-    public boolean isObjectDetectionClassification() {
-        return objectDetectionManager.isEnableClassification();
-    }
-    
-    public void setObjectDetectionMode(String mode) {
-        objectDetectionManager.setDetectionMode(mode);
-    }
-    
-    public String getObjectDetectionMode() {
-        return objectDetectionManager.getCurrentMode();
-    }
-    
-    public String formatDetectedObjectsAsText(java.util.List<ObjectDetectionManager.DetectedObjectResult> results) {
-        return objectDetectionManager.formatResultsAsText(results);
-    }
-    
-    public org.json.JSONObject formatDetectedObjectsAsJson(java.util.List<ObjectDetectionManager.DetectedObjectResult> results) {
-        return objectDetectionManager.formatResultsAsJson(results);
-    }
-    
+
     // ==================== 图片功能 ====================
     
     /**
@@ -489,14 +461,6 @@ public class AppToolkit {
         if (ocrManager != null) {
             ocrManager.release();
             ocrManager = null;
-        }
-        if (imageLabelManager != null) {
-            imageLabelManager.release();
-            imageLabelManager = null;
-        }
-        if (objectDetectionManager != null) {
-            objectDetectionManager.release();
-            objectDetectionManager = null;
         }
     }
 }
