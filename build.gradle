@@ -182,7 +182,13 @@ android {
                 // 传递依赖已全部显式列出, 缺一不可。
                 install "python-wheels/requests-2.34.2-py3-none-any.whl"
                 install "python-wheels/beautifulsoup4-4.15.0-py3-none-any.whl"
-                install "python-wheels/jieba-0.42.1.tar.gz"
+                // 2026-11-21: jieba 原本是 sdist（.tar.gz）。Chaquopy 17 自带 pip 25.3，
+                // **冷构建**（build/python 缓存不存在）时对 sdist 走 PEP 517 构建隔离，
+                // 会先去 pypi.org 装 setuptools>=40.8 —— 连不上 pypi 就卡在
+                // "Installing build dependencies: started"（热缓存时这步根本不执行，
+                // 所以平时增量构建看不出来）。换成同版本纯 Python wheel（py3-none-any）
+                // 后不再触发任何构建，冷构建也零联网。
+                install "python-wheels/jieba-0.42.1-py3-none-any.whl"
                 install "python-wheels/python_docx-1.2.0-py3-none-any.whl"
                 install "python-wheels/python_pptx-1.0.2-py3-none-any.whl"
                 install "python-wheels/pypdf-6.19.0-py3-none-any.whl"
