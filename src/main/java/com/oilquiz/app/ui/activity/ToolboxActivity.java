@@ -207,6 +207,7 @@ public class ToolboxActivity extends com.oilquiz.app.ui.base.LegacyResultActivit
             "命令路由（Linux 工具箱）",
             "远程连接（电脑）",
             "完整 Python 环境（Termux + Ubuntu）",
+            "Agent 设置（Git 凭据 / 安全开关）",
             "开源许可（第三方组件）",
             "隐私政策"
         }, new Class<?>[]{
@@ -216,6 +217,7 @@ public class ToolboxActivity extends com.oilquiz.app.ui.base.LegacyResultActivit
             LinuxRouteActivity.class,
             com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class,
             com.oilquiz.app.ai.tool.TermuxEnvSetupActivity.class,
+            com.oilquiz.app.infra.AgentSettingsActivity.class,
             AboutLicensesActivity.class,
             PrivacyPolicyActivity.class
         });

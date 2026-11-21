@@ -420,25 +420,9 @@ public class AIToolManager {
      * @return 执行结果
      */
     public AIToolResult executeTool(String toolName, Map<String, Object> parameters) {
-        // TODO(权限分级接入点 · 2026-11-16)：这里就是统一拦截的位置，目前**故意不拦截**。
-        //  分级表已就绪（{@link ToolPermissions}），但接入会动到 Agent 主调用链路，
-        //  先留点不接，等决定做的时候按下面三步走：
-        //
-        //   1) 只观察不阻断：在下方 try 之前调用
-        //        AuditLog.record(toolName, ToolPermissions.levelOf(toolName), parameters);
-        //      跑一轮线上/自测，确认分级归类没有误判（尤其 git / export_apk / 一切 shell）。
-        //
-        //   2) 打开"每次询问"拦截：在 executeToolInner 返回前判断
-        //        if (ToolPermissions.requiresEveryTime(resolvedTool)) {
-        //            return AIToolResult.failNeedApproval(resolvedTool, 级别);   // 需新增该工厂方法
-        //        }
-        //      并在 UI 侧接一个审批面板（复用 McpApprovalManager 的交互范式）。
-        //
-        //   3) 打开审计：对 ToolPermissions.requiresAudit(...) 为 true 的工具，
-        //      执行前后各写一条（谁、什么参数摘要、结果成败）。
-        //
-        //  另外注意：{@link #resolveToolNameFuzzy} 会把工具名归一化，分级判断必须用
-        //  归一化后的名字（resolved），否则别名工具会全部落到未知工具的保守默认值。
+        // 权限分级已在 executeToolInner 接入（2026-11-22）：EXEC / NETWORK / DANGEROUS
+        // 交给 ToolApprovalGate 询问用户；READ_ONLY / WRITE_LOCAL 直接放行。
+        // 分级判断用归一化后的名字（resolved），别名工具才不会掉进未知工具的保守默认档。
         // 引擎侧基础设施（2026-10-25）：把"正在执行哪个工具"发布到活动总线，
         // 聊天页据此显示多样化状态文案（正在联网搜索/正在生成文件/正在读取文件…），
         // 不再靠 UI 每 tick 猜工具名。异常/提前返回也保证清干净。
@@ -525,13 +509,19 @@ public class AIToolManager {
             additionalInfo.put("toolName", toolName);
             return new AIToolResult("工具不存在: " + toolName + "（可用 tool_registry(list) 查看全部工具）", additionalInfo);
         }
+        // 权限分级执行拦截（2026-11-22）：EXEC / NETWORK / DANGEROUS 每次询问
+        // （主线程的 UI 内部调用与只读/本地写工具直接放行，细节见 ToolApprovalGate）
+        AIToolResult approvalDenied = ToolApprovalGate.check(resolved, parameters);
+        if (approvalDenied != null) {
+            return approvalDenied;
+        }
+
         AITool tool = getOrCreateTool(resolved);
         if (tool == null) {
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("toolName", toolName);
             return new AIToolResult("Tool not found: " + toolName, additionalInfo);
         }
-
         // TL-06 权限与调用联动：工具执行前检查所需 Android 权限，未授权先返回引导
         //（避免执行中才失败；模型可用 permission_manager 引导用户授权后重试）
         String permissionError = checkToolPermission(resolved, parameters);
@@ -1826,7 +1816,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "system_resource":
-                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行Shell命令、SSH远程连接、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command已内置 busybox 工具箱（sed/awk/grep/find/tar/gzip/wget/vi/md5sum/base64/xargs/diff 等 400+ 命令，无需 Termux 直接调用）；默认不对命令做任何拦截（原样交给系统 shell 执行），可用 action=shell_mode 切换到 readonly 恢复拦截；单条命令25秒超时（超时强杀并返回已产生输出）。另内置 openssl(真TLS)/ssh/scp/sftp/ssh-keygen（Termux bionic 构建）（超时则终止并返回已产生的输出，会挂起的交互式命令不要用）。ssh_exec：SSH 连接任意远程主机执行单条命令（host/user/command 必填，port 默认22；可连电脑/云服务器/路由器等任何 sshd 主机，不依赖本地 Termux；支持密钥免密或密码认证，密码认证 JSch 原生开箱即用；非交互、25秒超时）。termux_exec：在 Termux 的完整 Linux 环境里执行命令（apt/pip/ssh/git/curl 等，不受上述黑名单限制），返回 stdout/stderr/exit_code，20秒超时；需手机已装 Termux 且已授权；只用 shell 就能做的事优先 shell_command")
+                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行Shell命令、SSH远程连接、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command已内置 busybox 工具箱（sed/awk/grep/find/tar/gzip/wget/vi/md5sum/base64/xargs/diff 等 400+ 命令，无需 Termux 直接调用）；默认开启防误操作黑名单（readonly，命令仍原样交给系统 shell，但先过 rm/dd/mount/su 与 /data/data、/proc、/sys 等黑名单），确需放开先向用户说明，再用 action=shell_mode 切 full；单条命令25秒超时（超时强杀并返回已产生输出）。另内置 openssl(真TLS)/ssh/scp/sftp/ssh-keygen（Termux bionic 构建）（超时则终止并返回已产生的输出，会挂起的交互式命令不要用）。ssh_exec：SSH 连接任意远程主机执行单条命令（host/user/command 必填，port 默认22；可连电脑/云服务器/路由器等任何 sshd 主机，不依赖本地 Termux；支持密钥免密或密码认证，密码认证 JSch 原生开箱即用；非交互、25秒超时）。termux_exec：在 Termux 的完整 Linux 环境里执行命令（apt/pip/ssh/git/curl 等，不受上述黑名单限制），返回 stdout/stderr/exit_code，20秒超时；需手机已装 Termux 且已授权；只用 shell 就能做的事优先 shell_command")
                     .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/send_email/open_map/list_apps/check_app/get_app_info/app_control/shell_command/shell_mode/ssh_exec/termux_exec/http_download/read_setting/write_setting/get_current_app/open_settings/share_text", false, "open_app")
                     .addParameter("app", "string", "应用名称或包名，支持模糊匹配", false)
                     .addParameter("url", "string", "URL地址(http_download 时为要下载的地址)", false)

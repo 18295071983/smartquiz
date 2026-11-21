@@ -232,6 +232,40 @@ public class DebugLayoutInjectActivity extends Activity {
             return;
         }
 
+        // 权限分级拦截自检（2026-11-22）：后台线程调 EXEC 工具，应弹「允许执行这个工具？」确认框
+        // --es mode tool_approval_test
+        if ("tool_approval_test".equals(getIntent().getStringExtra("mode"))) {
+            final String toolExtra = getIntent().getStringExtra("tool");
+            final String toolName = ("ssh_exec".equals(toolExtra)) ? "system_resource"
+                    : ((toolExtra == null || toolExtra.isEmpty()) ? "linux_shell" : toolExtra);
+            new Thread(() -> {
+                try {
+                    java.util.Map<String, Object> args = new java.util.HashMap<>();
+                    if ("system_resource".equals(toolName)) {
+                        // ssh_exec 是 system_resource 的 action；参数故意给假主机，只验证"授权框先弹、拒绝后不执行"
+                        args.put("action", "ssh_exec");
+                        args.put("host", "127.0.0.1");
+                        args.put("user", "approval-test");
+                        args.put("command", "echo hi");
+                    } else {
+                        args.put("action", "exec");
+                        args.put("command", "echo approval-gate-ok");
+                    }
+                    com.oilquiz.app.ai.tool.AIToolResult r =
+                            com.oilquiz.app.ai.tool.AIToolManager.getInstance(getApplicationContext())
+                                    .executeTool(toolName, args);
+                    android.util.Log.i("ToolApprovalTest", toolName + " success=" + (r != null && r.isSuccess())
+                            + " result=" + (r != null ? r.getResult() : "null")
+                            + " err=" + (r != null ? r.getErrorMessage() : "null"));
+                } catch (Throwable t) {
+                    android.util.Log.e("ToolApprovalTest", "failed: " + t.getMessage(), t);
+                }
+            }, "tool-approval-test").start();
+            // 不 finish：确认框要挂在这个 Activity 上
+            return;
+        }
+
+
         // 列表工具包（ItemDecoration/ConcatAdapter/多选/骨架屏/FAB/ViewStub）：--es mode list_kit
         if ("list_kit".equals(getIntent().getStringExtra("mode"))) {
             startActivity(new android.content.Intent(this,

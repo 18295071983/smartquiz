@@ -66,6 +66,8 @@ public class MainActivity extends BaseActivity {
             com.oilquiz.app.ai.dsh.DshService.start(this);
         } catch (Throwable ignored) {
         }
+        // SEC-NOTICE(2026-11-22)：首次启动内置 Linux 环境时说明用途与边界，只弹一次
+        showLocalLinuxEnvNoticeIfNeeded();
         
         // 检查是否使用 WebView 视图
         boolean useWebView = resources.getConfigBoolean("home_view_web", false);
@@ -199,6 +201,33 @@ public class MainActivity extends BaseActivity {
     
     private AIService.DetailedStatusObserver aiStatusObserver;
     private InferenceRouter inferenceRouter;
+
+    /**
+     * 首次启动内置 Linux 环境（proot + 内置 DSH）时的一次性说明。
+     * 说清用途与边界：用户态运行、不需要 root、不对外提供服务；只弹一次。
+     */
+    private void showLocalLinuxEnvNoticeIfNeeded() {
+        if (com.oilquiz.app.infra.SecuritySwitches.isDshNoticeShown(this)) {
+            return;
+        }
+        com.oilquiz.app.infra.SecuritySwitches.markDshNoticeShown(this);
+        try {
+            com.oilquiz.app.ui.modal.AppDialog.builder(this)
+                    .setTitle("本地 Linux 环境说明")
+                    .setMessage("本应用内置一个用户态 Linux 环境（proot），"
+                            + "用于运行 AI 助手需要的命令行工具和内置服务。\n\n"
+                            + "· 不需要 root，不修改系统分区，不绕过系统安全机制；\n"
+                            + "· 只在应用私有目录和你已授权的共享目录里读写；\n"
+                            + "· 不对外提供 SSH 等网络服务；相关工具默认关闭，"
+                            + "可在「工具集 → 设置与系统环境 → Agent 设置 → 安全开关」里按需开启。")
+                    .setPositiveButton("知道了", (d, w) -> d.dismiss())
+                    .setCancelable(true)
+                    .create()
+                    .show();
+        } catch (Throwable t) {
+            com.oilquiz.app.util.AILogger.w("MainActivity", "本地 Linux 环境说明弹窗失败: " + t.getMessage());
+        }
+    }
     
     private void updateAiStatus() {
         new Thread(() -> {

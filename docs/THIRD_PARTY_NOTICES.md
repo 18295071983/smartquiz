@@ -103,42 +103,45 @@ APK 还链接了下列开源库，按各自许可保留版权与许可声明（�
   PDFium（BSD-3-Clause）、FreeType（FTL / GPLv2 双许可）、libpng（libpng-2.0）、
   NSS / NSPR（MPL-2.0）、SQLite（Public Domain）
 
-## 10. PDFium 渲染（Apache-2.0 / BSD-3-Clause）
+## 10. PDF 预览（平台 PdfRenderer，无随包原生库）
 
-- 组件：PdfiumAndroid 1.9.0（`com.github.barteksc:pdfium-android`，随包 `libjniPdfium.so`）
-- 用途：PDF 预览（`PdfiumPreviewActivity`）
-- 许可：**Apache License 2.0**（封装层）；内置 PDFium 本体为 **BSD-3-Clause**
-- 源码：https://github.com/barteksc/PdfiumAndroid 、https://pdfium.googlesource.com/pdfium/
+- 组件：Android 平台 `android.graphics.pdf.PdfRenderer`（API 21+）
+- 用途：PDF 预览（`PdfiumPreviewActivity` / `PdfiumPreviewManager`）
+- 说明：2026-11-20 移除 PdfiumAndroid 1.9.0（其 `.so` 为 4 KB 对齐，16 KB 页设备加载失败）。
+  改用平台渲染器后不再随包分发 PDFium 原生库，也无需单独声明其许可。
 
-## 11. Qualcomm GenieX / QNN / QAIRT（BSD-3-Clause + Qualcomm 条款）
+## 11. Qualcomm GenieX / QNN / QAIRT（已移除）
 
-- 组件：`com.qualcomm.qti:geniex-android:0.8.0` 及其随包原生库（`libgeniex*`、`libQnn*`、
-  `libhta_hexagon_runtime_*`、`libPlatformValidatorShared.so`、`libcalculator*.so`）
-- 用途：骁龙 Hexagon NPU 端侧大模型推理
-- 许可：**BSD-3-Clause + Qualcomm Terms of Use**；其中 QNN / QAIRT 预编译库为 Qualcomm
-  专有二进制，再分发须遵守 Qualcomm 的许可条款
-- 上游：https://github.com/qualcomm/GenieX
+- 原 `com.qualcomm.qti:geniex-android:0.8.0` 及其随包原生库（`libgeniex*`、`libQnn*`、
+  `libhta_hexagon_runtime_*`、`libPlatformValidatorShared.so`、`libcalculator*.so`）已于 2026-11 移除，
+  当前版本不再随包分发 Qualcomm 专有运行时。
+- 骁龙 Hexagon 后端改为用 Hexagon SDK 工具链自行构建（`libggml-hexagon.a` +
+  `libggml-htp-v73..v85.so`），源码来自本项目维护的 llama.cpp 分支（MIT），SDK 本身不随包分发。
 
 ## 12. 端侧推理运行时与视觉库
 
 | 组件 | 许可 | 用途 |
 |---|---|---|
 | llama.cpp / ggml（`libllama*`、`libggml*`、`libmtmd`） | MIT | 本地 GGUF 大模型推理 |
-| ONNX Runtime 1.18（`libonnxruntime*`） | MIT | OCR / 语音识别 / 向量模型 |
-| TensorFlow Lite 2.15（`libtensorflowlite*`） | Apache-2.0 | 本地分类 / 检测 |
-| OpenCV 4.9（`libopencv_java4.so`） | Apache-2.0 | 图像预处理 |
+| ONNX Runtime 1.32（`libonnxruntime*`） | MIT | OCR / 语音识别 / 向量模型 / 图像标签 |
+| OpenCV 4.14（`libopencv_java4.so`） | Apache-2.0 | 图像预处理 |
 | RapidOCR4j 1.0.0（`io.github.hzkitty:rapidocr4j-android`） | Apache-2.0 | 中文 OCR |
 | libomp（LLVM OpenMP） | Apache-2.0（LLVM 例外） | 多线程运行时 |
+| `libggml-hexagon.a` / `libggml-htp-v73..v85.so` | MIT（本项目维护的 llama.cpp 分支；Hexagon SDK 工具链构建） | 骁龙 Hexagon NPU 后端 |
 
-模型文件：`assets/models/mobilenet_v2_1.0_224.tflite`（Apache-2.0）、
+模型文件：`assets/models/mobilenetv2-7.onnx`（Apache-2.0，图像分类）、
+`assets/models/ssd-12-int8.onnx`（Apache-2.0，目标检测）、
 `assets/models/all-MiniLM-L6-v2_vocab.txt`（Apache-2.0）。
 
-## 13. Google ML Kit（Google 条款）
+> TensorFlow Lite 2.15 已于 2026-11-20 移除：代码对 `org.tensorflow` 零引用，
+> 且其 `.so` 为 NDK r25 构建的 4 KB 对齐库。
 
-- 组件：`com.google.mlkit:text-recognition*`、`image-labeling*`、`object-detection*`
-- 用途：离线文字识别、图像标注、目标检测
-- 许可：**Google ML Kit 使用条款**（免费使用，非开源）；随包模型见 `assets/mlkit-*`
-- 条款：https://developers.google.com/ml-kit/terms
+## 13. Google ML Kit（已移除）
+
+- 2026-11-20 移除 `com.google.mlkit:text-recognition*`、`image-labeling*`、`object-detection*`：
+  模型质量不如 RapidOCR，且随包的 `libmlkit_google_ocr_pipeline.so` /
+  `libmlkitcommonpipeline.so` 为 NDK r25 构建的 4 KB 对齐库，16 KB 页设备加载失败。
+- 图像标签 / 目标检测现改用 ONNX Runtime + `mobilenetv2-7.onnx` / `ssd-12-int8.onnx`（见第 12、17 节）。
 
 ## 14. Python 运行时（Chaquopy + CPython + 科学计算包）
 
@@ -178,6 +181,8 @@ APK 还链接了下列开源库，按各自许可保留版权与许可声明（�
 |---|---|---|
 | SenseVoice-Small int8（`assets/asr/model.int8.onnx`，228 MB） | FunAudioLLM/SenseVoice（经 sherpa-onnx 转换） | 以模型包内 LICENSE 为准，商用需自行确认 |
 | PaddleOCR 系模型（`assets/ch_PP-OCRv4_*`、`assets/ocr/*`） | PaddleOCR | Apache-2.0 |
+| MobileNetV2-7（`assets/models/mobilenetv2-7.onnx`，13.6 MB） | ONNX Model Zoo（commit 4c46cd00） | Apache-2.0 |
+| SSD-12 int8（`assets/models/ssd-12-int8.onnx`，19.5 MB） | ONNX Model Zoo（commit 4c46cd00） | Apache-2.0 |
 
 ## 18. 其它 SDK 与前端库
 
@@ -188,3 +193,14 @@ APK 还链接了下列开源库，按各自许可保留版权与许可声明（�
 - Markdown 文档渲染（2026-10-25，`assets/js/markdown-it*.js`）：markdown-it 14.1（MIT）、
   markdown-it-footnote 4.0（MIT）、markdown-it-deflist 3.0（MIT）、
   markdown-it-task-lists 2.1（MIT）
+
+## 19. proot（GPL v2，随包分发的 Linux 环境引导器）
+
+- 组件：`libproot.so`、`libproot_loader.so`（AArch64）与 `libproot_loader32.so`（ARM 32 位 loader）
+- 来源：Termux 维护的 proot 分支
+- 用途：用内置 rootfs 运行 Linux 命令与内置 DSH 服务；**纯用户态**（ptrace 注入 loader），
+  不需要 root，不修改系统分区，不绕过系统安全机制
+- 许可：**GNU General Public License v2**
+- 说明：GPLv2 只覆盖 proot 本身；App 以独立进程调用它，不与其它自有代码静态链接，
+  源码与构建说明可从下述地址获取
+- 源码：https://github.com/termux/proot

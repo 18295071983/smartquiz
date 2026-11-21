@@ -53,11 +53,11 @@ import java.util.concurrent.atomic.AtomicReference;
         @Action(name = "list_apps", description = "列出已安装应用"),
         @Action(name = "get_app_info", description = "获取应用信息"),
         @Action(name = "app_control", description = "控制应用：强制停止/清除数据/获取详细信息"),
-        @Action(name = "shell_command", description = "执行Shell命令（与 linux_shell(action=exec) 同一套环境）。结果含 exit_code/timed_out/truncated；退出码非零时 status=failed（grep 无匹配=1、diff 有差异=1 属正常语义，别当工具坏了）"),
-        @Action(name = "ssh_exec", description = "SSH 连接任意远程主机并执行单条命令（JSch 纯 Java 实现，不依赖本地 Termux/内置二进制；可连电脑、云服务器、路由器、NAS 等任何开 sshd 的机器）。支持密钥免密或密码认证（JSch 原生，开箱即用）。注意：① 非交互，单条命令执行完即断开，25 秒超时；② 默认跳过主机指纹校验（StrictHostKeyChecking=no）方便首次连接；③ 参数 host=目标IP/域名、user=用户名、command=远程命令、port=端口(默认22)、password=密码、key_file=私钥路径"),
+        @Action(name = "shell_command", description = "执行Shell命令（与 linux_shell(action=exec) 同一套环境）。结果含 exit_code/timed_out/truncated；退出码非零时 status=failed（grep 无匹配=1、diff 有差异=1 属正常语义，别当工具坏了）。默认开启防误操作黑名单（readonly）；确需放开先向用户说明，再用 shell_mode=full"),
+        @Action(name = "ssh_exec", description = "SSH 连接任意远程主机并执行单条命令（默认关闭：首次调用会弹框请求授权，选「始终允许」等价于在设置里永久打开；JSch 纯 Java 实现，不依赖本地 Termux/内置二进制；可连电脑、云服务器、路由器、NAS 等任何开 sshd 的机器）。支持密钥免密或密码认证（JSch 原生，开箱即用）。注意：① 非交互，单条命令执行完即断开，25 秒超时；② 默认跳过主机指纹校验（StrictHostKeyChecking=no）方便首次连接；③ 参数 host=目标IP/域名、user=用户名、command=远程命令、port=端口(默认22)、password=密码、key_file=私钥路径"),
         @Action(name = "termux_exec", description = "在 Termux 中执行命令（完整 Linux 环境，可 apt/pip/ssh/git 等；需已装 Termux 并授予 RUN_COMMAND 权限，且 Termux 进程在跑——不确定先调 linux_shell(action=termux_wake) 或 termux_status 自检）。注意：① 只等 20 秒，apt/pip/下载这类跑不完的长任务改用 linux_shell(action=termux_submit) 挂后台作业；② 用 proot-distro login ubuntu 进容器后，容器内裸 git/gcc/make/cmake 等命令可能命中 Termux 的二进制（PATH 被继承），简单容器命令会被自动注入容器优先 PATH，复杂命令请自行用绝对路径 /usr/bin/git"),
         @Action(name = "http_download", description = "下载 URL 到本地（App 内 okhttp 实现，https 走系统证书校验，比 shell 里的 wget 更可靠）"),
-        @Action(name = "shell_mode", description = "切换 shell 防误操作黑名单：full=不拦(默认，用户自己的设备) / readonly=开启命令与路径黑名单 / query=查询当前。"
+        @Action(name = "shell_mode", description = "切换 shell 防误操作黑名单：full=不拦（需用户显式关闭） / readonly=开启命令与路径黑名单（默认） / query=查询当前。"
             + "注意它不是安全边界：黑名单是对命令文本的匹配，变量替换、别名、改名都能绕过；这个开关本身也由本工具切换，"
             + "App 里没有设置页能锁住它。别把 readonly 当成限制来依赖。"),
         @Action(name = "read_setting", description = "读取系统设置"),
@@ -68,7 +68,7 @@ import java.util.concurrent.atomic.AtomicReference;
         @Param(name = "action", type = "string", description = "操作类型", required = true),
         @Param(name = "app", type = "string", description = "应用名称或包名", required = false),
         @Param(name = "url", type = "string", description = "URL地址（http_download 时为要下载的地址）", required = false),
-        @Param(name = "mode", type = "string", description = "shell_mode 用: full(默认不拦) / readonly(开启拦截) / query(查询)", required = false),
+        @Param(name = "mode", type = "string", description = "shell_mode 用: full(关闭拦截) / readonly(开启拦截，默认) / query(查询)", required = false),
         @Param(name = "path", type = "string", description = "保存路径（http_download 用；绝对路径或工作区相对路径，缺省存到工作区 files/ 并用 URL 文件名）", required = false),
         @Param(name = "phone", type = "string", description = "电话号码", required = false),
         @Param(name = "message", type = "string", description = "短信内容", required = false),
@@ -1149,7 +1149,7 @@ public class SystemResourceTool implements AITool {
         //   · 超时 SHELL_TIMEOUT_SECONDS 秒（到点强杀并返回已产生的输出）
         //   · 输出上限 MAX_SHELL_OUTPUT_CHARS 字符（防 cat 大文件把结果撑爆）
         
-        // readonly 模式才走拦截（默认 full：用户自己的设备，不拦截）
+        // 默认 readonly：先过防误操作黑名单（设置页或 shell_mode=full 可关闭）
         if (isGuardEnabled()) {
             String lower = command.toLowerCase().trim();
             String[] parts = lower.split("[;&|$()\\s]+");
@@ -1697,15 +1697,8 @@ public class SystemResourceTool implements AITool {
     private static final String READONLY_NOTE =
             "（这是防误操作黑名单，不是安全边界：变量替换/别名都能绕过。"
                     + "确需执行请先向用户说明，再用 system_resource(action=shell_mode, mode=full) 关闭）";
-    private static final String PREF_NAME = "system_resource_prefs";
-    private static final String PREF_GUARD = "shell_guard_enabled";
-
     private boolean isGuardEnabled() {
-        try {
-            return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).getBoolean(PREF_GUARD, false);
-        } catch (Exception e) {
-            return false;
-        }
+        return com.oilquiz.app.infra.SecuritySwitches.isShellGuardEnabled(context);
     }
 
     /**
@@ -1718,21 +1711,18 @@ public class SystemResourceTool implements AITool {
      */
     private boolean setGuardEnabled(boolean on) {
         try {
-            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().putBoolean(PREF_GUARD, on).apply();
-            boolean readBack = isGuardEnabled();
-            if (readBack != on) {
-                AILogger.w(TAG, "shell 防护档写入后读回不一致：请求 " + (on ? "readonly" : "full")
-                        + "，读回 " + (readBack ? "readonly" : "full"));
-                return false;
+            boolean ok = com.oilquiz.app.infra.SecuritySwitches.setShellGuardEnabled(context, on);
+            if (!ok) {
+                AILogger.w(TAG, "shell 防护档写入后读回不一致：请求 " + (on ? "readonly" : "full"));
             }
-            return true;
+            return ok;
         } catch (Exception notStored) {
             AILogger.w(TAG, "shell 防护档没落盘: " + notStored.getMessage());
             return false;
         }
     }
 
-    /** shell_mode：切换/查询 shell 拦截模式（默认 full 不拦；readonly 恢复拦截） */
+    /** shell_mode：切换/查询 shell 拦截模式（默认 readonly 拦；full 关闭拦截） */
     private AIToolResult shellMode(Map<String, Object> parameters) {
         String mode = (String) parameters.get("mode");
         boolean changed = false;
@@ -1762,7 +1752,7 @@ public class SystemResourceTool implements AITool {
                 ? "readonly：对命令文本做黑名单匹配（rm/dd/chmod/kill/mount/su…，以及 /data/data、/proc、/sys 等路径），"
                   + "sleep 超限直接拒。这只是防误操作，不是安全边界：变量替换/别名/改名可绕过，"
                   + "而且开关本身由本工具切换，App 内没有设置页能锁住"
-                : "full：不拦截任何命令（默认，用户自己的设备）");
+                : "full：不拦截任何命令（黑名单已被手动关闭）");
         result.put("changed", changed);
         return new AIToolResult(result, parameters);
     }
@@ -2427,6 +2417,34 @@ public class SystemResourceTool implements AITool {
      * 非交互、单条命令、8s 连接超时、25s 总超时；默认跳过主机指纹校验（StrictHostKeyChecking=no）方便首次连接。
      */
     private AIToolResult sshExec(Map<String, Object> parameters) {
+        // SEC-DEFAULT(2026-11-22)：SSH 远程执行默认关闭；首次调用就地弹框授权，
+        // 用户选「始终允许（全局）」等价于打开设置页的开关，不用先去设置里改。
+        if (!com.oilquiz.app.infra.SecuritySwitches.isSshExecEnabled(context)) {
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                return AIToolResult.fail("ssh_exec 需要用户授权，但当前调用发生在主线程，无法弹确认框。"
+                        + "请回到 App 重试，或让用户在「工具集 → 设置与系统环境 → Agent 设置 → 安全开关」里打开。",
+                        parameters);
+            }
+            String target = String.valueOf(parameters.get("user")) + "@"
+                    + String.valueOf(parameters.get("host")) + ":"
+                    + (parameters.get("port") == null ? "22" : String.valueOf(parameters.get("port")));
+            String command = String.valueOf(parameters.get("command"));
+            if (command.length() > 160) {
+                command = command.substring(0, 160) + "...";
+            }
+            String message = "目标：" + target + "\n命令：" + command
+                    + "\n\n这是对远程主机的命令执行，请确认主机与命令无误。"
+                    + "\n选「始终允许（全局）」后不再询问，可在「工具集 → 设置与系统环境 → Agent 设置 → 安全开关」里关闭。";
+            int decision = ToolApprovalGate.requestApproval(
+                    context, "允许执行 SSH 远程命令？", message, true);
+            if (decision == ToolApprovalGate.DECISION_DENY) {
+                return AIToolResult.fail("用户拒绝了本次 SSH 远程执行请求。"
+                        + "不要原样重试；先向用户确认目标主机与要执行的命令。", parameters);
+            }
+            if (decision == ToolApprovalGate.DECISION_GLOBAL) {
+                com.oilquiz.app.infra.SecuritySwitches.setSshExecEnabled(context, true);
+            }
+        }
         String host = (String) parameters.get("host");
         String user = (String) parameters.get("user");
         String command = (String) parameters.get("command");
