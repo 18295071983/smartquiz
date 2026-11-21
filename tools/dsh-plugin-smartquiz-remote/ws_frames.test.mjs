@@ -10,7 +10,8 @@
 //     · `ctx.on('user-questions/request')`  → `question`
 //     · `POST /v2/card`                     → `ui/card`（合成帧回归）
 //   另验两条边界：caps 过滤仍生效（只声明 events.stream 的连接收不到 approval）、
-//   `/ws/ui` 收不到 event（端点白名单没被打穿）、`pull` 仍回 `batch`。
+//   `/ws/ui` 收不到 event（端点白名单没被打穿）、`pull` 仍回 `batch`、
+//   WS 也会按 10s 一条 `pulse` 推心跳（2026-11-21 补，见对应用例）。
 //
 // 【边界】
 //   - DSH 宿主没有真跑：`session/event` 是**直接调用插件注册的那个回调**（帧来源真实，
@@ -21,7 +22,12 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { WebSocket } from 'ws';
-import { apply } from './index.js';
+
+// 自测会把插件 apply 起来，`markStartup()` 于是想写 `.startup.json`。
+// 不置这个标志就会把**真机探针**改成 port=19387/pid=测试进程（曾经误导过一次排查）。
+globalThis.__SMARTQUIZ_SMOKE__ = true;
+
+const { apply } = await import('./index.js');
 
 const TOKEN = 'ws-frames-test-token';
 const SID = 'root-1';
@@ -323,6 +329,21 @@ await test('pull 语义未动：/ws/events 发 pull 仍回 batch', async () => {
   );
   assert.ok(Array.isArray(batch.events), 'batch.events 应为数组');
   assert.equal(typeof batch.last_seq, 'number');
+});
+
+await test('心跳：WS 连接也要收到 pulse（SSE 有、WS 曾经没有）', async () => {
+  // 2026-11-21：`/v2/stream`（SSE）一直每 10s 一条 pulse，WS 却一条都没有 ——
+  // 手机切到 WS 后连接灯/"N 秒前心跳"全停（用户报「没有心跳了」）。
+  // 这条钉住"WS 也有心跳"，并且带 ts/seq 供客户端测 RTT、判活。
+  const frame = await waitFor(
+    () => findFrame(events.frames, (f) => f.type === 'pulse'),
+    'pulse 帧（每 10s 一条）',
+    12000,
+  );
+  assert.equal(typeof frame.ts, 'number');
+  assert.ok(frame.ts > 0, 'pulse.ts 应是服务端时间戳');
+  assert.equal(typeof frame.seq, 'number');
+  assert.ok(frame.seq >= 0, 'pulse.seq 应是这条会话的最新 seq');
 });
 
 await test('/status 按连接列出 caps 摘要（declared/missing/unknown/version）', async () => {

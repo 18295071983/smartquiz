@@ -9226,6 +9226,36 @@ function presetSvcOf(ctx) {
           ws.on('close', cleanup);
           ws.on('error', cleanup);
         };
+        /**
+         * WS 心跳（2026-11-21 补）：**只有 SSE 有 pulse，WS 一条都没有**。
+         *
+         * <p>这条缺口在 SSE 时代看不出来：`/v2/stream` 每 10s 发一条
+         * `{type:'pulse'}`，客户端据此测 RTT、判活、把"在线"点亮。可只要手机切到
+         * WS（`/ws/events` + `/ws/ui`），就只剩传输层的 ping/pong —— 那是 okhttp/ws
+         * 自己回的，永远到不了应用层，于是连接灯不跳、"N 秒前心跳"停住，用户看到的就是
+         * 「没有心跳了」。而 `CHANNELS` 的白名单里 `pulse` 一直是有的（见上面
+         * `/ws/events` 的端点分工注释）—— 缺的只是那个定时器。</p>
+         *
+         * <p>口径与 SSE 完全一致：每 10s 一条，带服务端时间 `ts` 与当前 `seq`。</p>
+         *
+         * <p>**不要**在这里顺手 `touchConnection`：连接快照只认真实入站帧/pong
+         * （2026-11-18 的教训：自己给自己续命会让断开的连接永远显示在线，
+         * 手机侧还会看到"假在线"的心跳）。</p>
+         */
+        const WS_PULSE_MS = 10000;
+        const pulseTimer = setInterval(() => {
+          const ts = Date.now();
+          for (const sub of STREAM_HUB) {
+            if (!sub || sub.transport !== 'ws') continue;
+            let seq = 0;
+            try { seq = Number(ctx.sessions?.get?.(String(sub.sid ?? ''))?.seq ?? 0) || 0; } catch { seq = 0; }
+            try { sub.send({ type: 'pulse', v: 2, ts, seq }); } catch { /* 断连由连接自己的 close 回调清理 */ }
+          }
+        }, WS_PULSE_MS);
+        // 心跳不该吊住宿主进程退出（宿主重载时下面的 effect 会把它清掉）
+        try { pulseTimer.unref?.(); } catch { /* 忽略 */ }
+        ctx.effect(() => () => { try { clearInterval(pulseTimer); } catch { /* 忽略 */ } });
+
         const onUpgrade = (req, socket, head) => {
           let u;
           try { u = new URL(req.url ?? '/', 'http://x'); } catch { try { socket.destroy(); } catch { /* 忽略 */ } return; }
