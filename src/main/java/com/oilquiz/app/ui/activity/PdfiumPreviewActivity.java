@@ -27,8 +27,9 @@ import java.util.List;
 import com.oilquiz.app.R;
 import com.oilquiz.app.theme.ThemeColors;
 /**
- * Pdfium PDF 预览 Activity
- * 使用免费的 PdfiumAndroid 库渲染 PDF
+ * PDF 预览 Activity
+ * 渲染由 PdfiumPreviewManager 提供，底层是系统 {@code android.graphics.pdf.PdfRenderer}
+ * （PDFIUM-REMOVED(2026-11-20)：原 PdfiumAndroid 1.9.0 是 4 KB 对齐库，16 KB 页设备加载失败，已移除）
  */
 public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity {
     private static final String TAG = "PdfiumPreviewActivity";
@@ -151,6 +152,15 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
             renderAllPages();
             showAllPages();
         } else {
+            // PDF-META-BACKFILL(2026-11-20)：有明确失败原因（加密/损坏）时直接提示，
+            // 不再无脑弹文件选择器——加密 PDF 让用户重选一遍只会更困惑。
+            String reason = pdfManager.getLastError();
+            if (reason != null && !reason.isEmpty()) {
+                AppLogger.e(TAG, "PDF 打开失败: " + reason);
+                android.widget.Toast.makeText(this, reason, android.widget.Toast.LENGTH_LONG).show();
+                finish();
+                return;
+            }
             AppLogger.i(TAG, "无有效 PDF 来源，启动文件选择器");
             launchFilePicker();
         }

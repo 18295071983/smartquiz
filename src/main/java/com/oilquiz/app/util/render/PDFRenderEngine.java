@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * PDF 渲染引擎（基于 Google Pdfium 核心库，经 PdfiumPreviewManager 渲染）。
+ * PDF 渲染引擎（经 PdfiumPreviewManager，底层已换成系统 android.graphics.pdf.PdfRenderer）。
  * 每页渲染为 JPEG（quality 85），输出单 HTML 预览页。
  */
 public class PDFRenderEngine implements FileRenderEngine {
