@@ -17367,7 +17367,30 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void refreshRemoteDshBar() {
+        /* HEARTBEAT-FIX(2026-11-21)：/status 心跳与"状态条显不显示"解耦。
+         *
+         * <p>以前"拉 /status + 续 1s tick"写在下面的「已连接」分支里，而它前面有两道
+         * early return：`remoteDshBar == null`、`!isBarEnabled`（`KEY_SHOW_BAR` 默认
+         * false，用户按状态条上的 ✕ 也会置 false）。于是**状态条一关，手机端就再也不拉
+         * /status**：顶栏副标题与连接灯停在最后一次快照上，`RemoteLinkState` 判成
+         * 「连接异常 · 已 Ns 没有心跳」（用户报的「手机端不轮询 / 没有心跳」正是这个）。
+         *
+         * <p>现在心跳放在函数最前面：只要「插件开着 + 已配对」就跑；状态条显不显示只影响
+         * 下面这条 bar 自己的渲染。顺序上先续 tick 再发请求 —— 万一请求这条链路抛异常，
+         * 1s 心跳也不会被一次失败带走（以前 tick 在每个分支末尾，异常一次就永久停摆）。
+         */
+        boolean remoteMode = com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isConfigured(this);
+        if (remoteMode) {
+            scheduleRemoteBarTick();
+            if (com.oilquiz.app.ai.chat.ui.ChatRemoteMode.isConnected(this)) {
+                // 节流 5s + 单飞都在 RemoteStatusMonitor 里；回来后重画 chrome 与状态条
+                com.oilquiz.app.ai.tool.RemoteStatusMonitor.refreshAsync(this,
+                        com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this), REMOTE_STATUS_HEARTBEAT_MS,
+                        () -> runOnUiThread(this::refreshRemoteDshBar));
+            }
+        }
         if (remoteDshBar == null) {
+            applyRemoteChrome();
             return;
         }
         // 用户可关（✕ 或「远程连接（电脑）」里的开关）：关了就不再常驻显示
@@ -17437,15 +17460,10 @@ public class AIChatActivity extends BaseActivity {
             }
             action = "管理 ›";
 
-            // 后台拉一次 /status + /v2/usage（节流 5s，单飞）；回来后重刷这条状态条。
-            // 2026-11-17：15s 太慢 —— 呼吸节奏看不出来（用户："跳动的频率无法观测"）。
-            com.oilquiz.app.ai.tool.RemoteStatusMonitor.refreshAsync(this,
-                    com.oilquiz.app.ai.tool.RemoteDshTool.getSyncTarget(this), REMOTE_STATUS_HEARTBEAT_MS,
-                    () -> runOnUiThread(this::refreshRemoteDshBar));
+            // /status 心跳与 1s tick 已提前到函数开头（HEARTBEAT-FIX 2026-11-21）：
+            // 它们不该依赖"状态条可见"，否则关掉状态条就整条链路停摆。
             // 数据插槽：阶段/会话/链路/用量/模型 各占一行（甲板按优先级选行）
             com.oilquiz.app.ai.tool.RemoteStatusSlots.publish(this);
-            // 1s 心跳：工具/生成/等待审批的秒数用本地时钟跳，服务端日志静止也照跳
-            scheduleRemoteBarTick();
         }
         remoteDshDot.setBackground(androidx.core.content.ContextCompat.getDrawable(this, dotRes));
         remoteDshText.setText(title);
